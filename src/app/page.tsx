@@ -58,8 +58,6 @@ export default function Home() {
     try {
       const q = await processRfq({ text: input.text, files: input.files, customer: input.customer, targetMargin: input.margin / 100, signal: controller.signal });
       open(q);
-      const ready = q.items.filter((i) => i.status === 'Ready').length;
-      setNotice(`${q.items.length} line${q.items.length === 1 ? '' : 's'} extracted · ${ready} ready${q.ready ? ' — the quote can be exported.' : '.'}`);
     } catch (e) {
       fail(e);
     } finally {
@@ -113,7 +111,7 @@ export default function Home() {
     <div className="shell">
       <Sidebar disabled={!!busy || !!processing} view={view} onView={(v) => { if (busy || processing) return; setView(v); setError(null); }} quote={quote} />
       <div className="main-col">
-        <main ref={mainRef}>
+        <main ref={mainRef} aria-busy={!!busy || !!processing}>
           {error && (
             <Message tone="error" onClose={() => setError(null)}>
               <strong>{error.message}</strong>{error.hint && <span className="hint"> {error.hint}</span>}

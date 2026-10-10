@@ -29,7 +29,8 @@ test('signing requires explicit authorization and clears it when signer or quote
   const props = { quote: q, busy: null as string | null, onEdit: () => {}, onExport: () => {}, onSign: (s: Signature) => signatures.push(s), signed: null, onDownloadSigned: () => {}, onBack: () => {}, onNew: () => {} };
   const render = async (changes = {}) => act(async () => root.render(createElement(FinalQuote, { ...props, ...changes })));
   const button = () => [...document.querySelectorAll('button')].find(b => b.textContent === 'Sign & download PDF')!;
-  await render(); assert.equal(button().disabled, true);
+  await render(); assert.equal((document.querySelector('.signing') as HTMLDetailsElement).open, false);
+  (document.querySelector('.signing') as HTMLDetailsElement).open = true; assert.equal(button().disabled, true);
   await fill(input('Full name'), 'Buyer Name'); await fill(input('Email'), 'buyer@example.com');
   assert.equal(button().disabled, true);
   await act(async () => input('I confirm').click());
@@ -42,7 +43,7 @@ test('signing requires explicit authorization and clears it when signer or quote
   assert.equal(input('I confirm').checked, false);
   await render({ busy: 'Signing quote' });
   assert.ok([...document.querySelectorAll('input')].every(i => i.disabled));
-  assert.equal([...document.querySelectorAll('button')].find(b => b.textContent === 'Workspace')!.disabled, true);
+  assert.equal([...document.querySelectorAll('button')].find(b => b.textContent === 'Back to review')!.disabled, true);
   await act(async () => root.unmount()); dom.window.close();
 });
 
