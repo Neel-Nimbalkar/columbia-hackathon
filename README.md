@@ -23,7 +23,7 @@ Open http://localhost:3000. The six sample requests use the real processing pipe
 
 ## Using it
 
-Open the app and either drop RFQ files / paste an email and press **Process RFQ**, or click one of the six **Try a sample RFQ** cards. Samples run through the real pipeline (AI extraction, catalog match, pricing) — nothing is precomputed:
+Open the app and either drop RFQ files / paste an email and press **Process RFQ**, or expand **Try an example RFQ** and run one of the six samples. Samples run through the real pipeline (AI extraction, catalog match, pricing) — nothing is precomputed:
 
 | Sample | What it shows |
 |---|---|
@@ -36,7 +36,13 @@ Open the app and either drop RFQ files / paste an email and press **Process RFQ*
 
 Sample files live in `public/samples/` (regenerate with `npx tsx scripts/make-samples.ts`).
 
-**Workspace:** original RFQ with the selected line highlighted, extracted lines with status, per-line spec/provenance, catalog match and alternatives, pricing with the room between our margin floor and the benchmark, compliance evidence, buyer answers, spec corrections, include/exclude, margin repricing, and a one-click buyer email listing every open question. **Final quote:** editable customer/reference/dates, readiness checklist that links back to each blocked line, server-validated PDF and a cover email.
+**Review:** visible clarification questions and blockers, buyer answers, spec corrections, include/exclude and margin repricing. Expand specs/catalog matches, benchmark explanations and compliance evidence when needed; open the original RFQ on demand. **Quote:** editable customer/reference/dates, blockers linked back to review, server-validated PDF and optional buyer acceptance.
+
+## Tools (side nav)
+
+- **Pipeline** — every processed RFQ is logged in this browser (no account, no server storage). Mark it sent after sending it; record won/lost with a loss reason. Shows won revenue, win rate, open pipeline, value-weighted margin, median RFQ→ready-quote time, first-pass ready rate, a weekly quoted-vs-won chart (with data table), conversion funnel, loss reasons, top customers, notes, reopen-in-workspace and CSV export.
+- **Catalog & stock** — searchable, sortable catalog with stock, lead time, cost, price at any margin, list price and headroom; product detail with a margin price ladder; one click adds an exact-match line to the New RFQ draft.
+- **Calculator** — weight and price per lb/piece/ft for sheet, bar, tube and angle in 12 alloys; gauge ↔ decimal for steel, stainless and aluminum side by side; fraction ↔ decimal ↔ mm with nearest 1/64; margin vs markup with a benchmark check.
 
 ## Document handling
 
@@ -76,3 +82,7 @@ Signing generates a purchase-request artifact. It does not transmit an order, ve
 ## Live acceptance harness
 
 `npm run harness -- http://localhost:3000` exercises the real AI pipeline, corrections, compliance, repricing, PDFs, and signing. It requires configured Nicrron, Jev and PRISM keys and makes billable provider calls. It generates artifacts without transmitting purchases.
+
+The main workflow is RFQ → Review → Quote. Advanced specs, benchmark explanations, compliance evidence, pricing settings and buyer acceptance expand on demand. Pipeline, Catalog & stock and Calculator are under Tools. Downloads and signatures do not automatically change Pipeline status.
+
+Email drafting and sending are not available. Review shows clarification questions for the buyer; enter confirmed answers to reprocess the quote.

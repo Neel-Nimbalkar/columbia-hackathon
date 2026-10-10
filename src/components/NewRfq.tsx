@@ -83,7 +83,7 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
 
   return (
     <>
-      <PageHeader title="New RFQ" subtitle="Drop the buyer's files or paste their email. Every line is extracted, matched to the catalog and priced — anything ambiguous comes back as a question." />
+      <PageHeader title="New RFQ" subtitle="Upload the buyer’s files or paste their request. We’ll flag anything that needs an answer." />
       <div className="intake">
         <section className="card intake-card">
           <div
@@ -96,7 +96,7 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
             <Upload size={20} />
             <div>
               <strong>Drop RFQ files here</strong> or <button className="link" disabled={!!processing || loadingSample} onClick={() => fileRef.current?.click()}>browse</button>
-              <p>PDF (incl. fillable forms & scans), Word, Excel, CSV, saved emails (.eml) or a photo · up to 5 files, 10 MB each</p>
+              <p>PDF, Word, Excel, CSV, email or photos · 5 files max, 10 MB each</p>
             </div>
           </div>
           {draft.files.length > 0 && (
@@ -110,7 +110,7 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
             </ul>
           )}
 
-          <label className="field-label" htmlFor="rfq-text">Email or notes <span className="muted">— combined with any files</span></label>
+          <label className="field-label" htmlFor="rfq-text">Buyer’s request <span className="muted">(optional with files)</span></label>
           <textarea
             disabled={!!processing || loadingSample}
             id="rfq-text"
@@ -120,13 +120,19 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
             onChange={(e) => onDraft({ ...draft, text: e.target.value })}
             placeholder={'Paste the buyer\'s email, e.g.\n\nNeed 6 pcs 304 SS sheet 16ga 12" x 24" #4, and 10 pcs 1018 CRS rd bar 1" x 36"…'}
           />
-          <div className="intake-row">
-            <label>Customer <span className="muted">(optional — read from the RFQ)</span>
-              <input disabled={!!processing || loadingSample} value={draft.customer} maxLength={200} onChange={(e) => onDraft({ ...draft, customer: e.target.value })} placeholder="Company name" />
-            </label>
-            <label>Target gross margin
-              <span className="input-suffix"><input disabled={!!processing || loadingSample} type="number" min={0} max={80} step={1} value={draft.margin} onChange={(e) => onDraft({ ...draft, margin: e.target.value })} /><span>%</span></span>
-            </label>
+          <details className="intake-options">
+            <summary>Customer & pricing settings</summary>
+            <div className="intake-row">
+              <label>Customer <span className="muted">(optional)</span>
+                <input disabled={!!processing || loadingSample} value={draft.customer} maxLength={200} onChange={(e) => onDraft({ ...draft, customer: e.target.value })} placeholder="Read from the RFQ" />
+              </label>
+              <label>Target gross margin
+                <span className="input-suffix"><input disabled={!!processing || loadingSample} type="number" min={0} max={80} step={1} value={draft.margin} onChange={(e) => onDraft({ ...draft, margin: e.target.value })} /><span>%</span></span>
+              </label>
+            </div>
+          </details>
+          <div className="intake-submit">
+            <span className="muted">Missing details become questions.</span>
             <button className="button primary" disabled={!canSubmit} onClick={submit}>
               {processing ? <Loader2 size={15} className="spin" /> : <ArrowRight size={15} />}Process RFQ
             </button>
@@ -134,11 +140,8 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
           {processing && <ProcessingBar processing={processing} />}
         </section>
 
-        <section className="samples">
-          <div className="section-head">
-            <h2>Try a sample RFQ</h2>
-            <p>Each one runs through the real pipeline — AI extraction, catalog match and pricing.</p>
-          </div>
+        <details className="samples example-drawer">
+<summary>Try an example RFQ</summary>
           <div className="sample-grid">
             {SAMPLES.map((s) => (
               <div key={s.id} className="sample-card">
@@ -153,7 +156,7 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
               </div>
             ))}
           </div>
-        </section>
+        </details>
       </div>
     </>
   );
@@ -163,7 +166,7 @@ function ProcessingBar({ processing }: { processing: Processing }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(t); }, []);
   const s = Math.floor((now - processing.startedAt) / 1000);
-  const stage = s < 2 ? 'Reading documents' : s < 25 ? 'Extracting line items' : s < 60 ? 'Matching, pricing and checking compliance' : 'Still working — long or scanned RFQs take longer';
+  const stage = s < 2 ? 'Reading documents' : s < 25 ? 'Extracting line items' : s < 60 ? 'Checking matches, prices and requirements' : 'Still working — long or scanned RFQs take longer';
   return (
     <div className="processing" role="status" aria-live="polite">
       <Loader2 size={16} className="spin" />

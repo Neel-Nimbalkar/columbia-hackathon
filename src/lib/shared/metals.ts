@@ -74,12 +74,15 @@ export const MM_PER_IN = 25.4;
 /** "1-1/2", "1 1/2", "3/16", ".060", "1.5" → number (null if not a positive number). */
 export function parseFraction(raw: string): number | null {
   const s = raw.trim().replace(/["”″]/g, '');
+  let n: number;
   let m = /^(\d+)\s*[- ]\s*(\d+)\s*\/\s*(\d+)$/.exec(s);
-  if (m) return Number(m[3]) ? Number(m[1]) + Number(m[2]) / Number(m[3]) : null;
-  m = /^(\d+)\s*\/\s*(\d+)$/.exec(s);
-  if (m) return Number(m[2]) ? Number(m[1]) / Number(m[2]) : null;
-  const n = Number(s.replace(/,/g, ''));
-  return s && Number.isFinite(n) && n > 0 ? n : null;
+  if (m) n = Number(m[3]) ? Number(m[1]) + Number(m[2]) / Number(m[3]) : NaN;
+  else {
+    m = /^(\d+)\s*\/\s*(\d+)$/.exec(s);
+    if (m) n = Number(m[2]) ? Number(m[1]) / Number(m[2]) : NaN;
+    else n = /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(s) ? Number(s) : /^(?:\d{1,3})(?:,\d{3})+(?:\.\d+)?$/.test(s) ? Number(s.replace(/,/g, '')) : NaN;
+  }
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /** Nearest fraction with a power-of-two denominator up to 1/64, e.g. 0.19 → "3/16" (+0.0025). */

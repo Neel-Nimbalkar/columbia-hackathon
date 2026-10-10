@@ -1,43 +1,25 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { FileCheck2, Inbox, ListChecks } from 'lucide-react';
+import { useState } from 'react';
 import type { Quote } from '@/lib/shared/schema';
+import { isBlocked } from '@/lib/client/format';
 
-export type View = 'new' | 'workspace' | 'final';
-
-interface Health { status: 'ok' | 'degraded'; providers: { nicrron: { configured: boolean; model: string }; typesafe: { configured: boolean } } }
+export type View = 'new' | 'workspace' | 'final' | 'pipeline' | 'catalog' | 'calculator';
 
 export function Sidebar({ view, onView, quote, disabled = false }: { view: View; onView: (v: View) => void; quote: Quote | null; disabled?: boolean }) {
-  const [health, setHealth] = useState<Health | null | 'error'>(null);
-  useEffect(() => {
-    fetch('/api/health', { signal: AbortSignal.timeout(10_000) }).then((r) => r.json()).then(setHealth, () => setHealth('error'));
-  }, []);
-
-  const open = quote ? quote.items.filter((i) => i.included && i.status !== 'Ready').length : 0;
-
-  const item = (v: View, label: string, icon: React.ReactNode, opts: { disabled?: boolean; count?: number | null; countTone?: string } = {}) => (
-    <button className={`nav ${view === v ? 'active' : ''}`} disabled={disabled || opts.disabled} onClick={() => onView(v)} aria-current={view === v ? 'page' : undefined}>
-      {icon}<span>{label}</span>
-      {opts.count ? <span className={`nav-count ${opts.countTone ?? ''}`}>{opts.count}</span> : null}
-    </button>
-  );
-
-  const model = health && health !== 'error' ? health.providers.nicrron.model.split('/').pop() : null;
-  return (
-    <aside className="sidebar">
-      <a className="brand" href="/" aria-label="RudCo home">rudco<span>.</span></a>
-      <nav aria-label="Quote">
-        <div className="nav-label">Quote</div>
-        {item('new', 'New RFQ', <Inbox size={16} />)}
-        {item('workspace', 'Workspace', <ListChecks size={16} />, { disabled: !quote, count: open || null, countTone: 'amber' })}
-        {item('final', 'Final quote', <FileCheck2 size={16} />, { disabled: !quote })}
-      </nav>
-      <div className="sidebar-foot">
-        {health === null ? <span className="status-line"><i className="dot" />Checking AI…</span>
-          : health === 'error' ? <span className="status-line"><i className="dot red" />Server unreachable</span>
-            : health.status === 'ok' ? <span className="status-line" title="Extraction via Nicrron, classification via TypeSafe Jev"><i className="dot green" />AI online · {model}</span>
-              : <span className="status-line" title="Set NICRRON_API_KEY and TYPESAFE_API_KEY on the server"><i className="dot amber" />AI keys not configured</span>}
-      </div>
-    </aside>
-  );
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const open = quote?.items.filter(i => i.included && isBlocked(i)).length ?? 0;
+  const steps = [{ view: 'new', label: 'RFQ' }, { view: 'workspace', label: 'Review' }, { view: 'final', label: 'Quote' }] as const;
+  const tools = [{ view: 'pipeline', label: 'Pipeline' }, { view: 'catalog', label: 'Catalog & stock' }, { view: 'calculator', label: 'Calculator' }] as const;
+  return <header className="workflow-nav">
+    <span className="brand" aria-label="RudCo">rudco<span>.</span></span>
+    <nav aria-label="Quote steps">
+      {steps.map((step, i) => <button key={step.view} className={`nav ${view === step.view ? 'active' : ''}`} disabled={disabled || (step.view !== 'new' && !quote)} onClick={() => onView(step.view)} aria-current={view === step.view ? 'step' : undefined}>
+        <span className="step-number">{i + 1}</span>{step.label}{step.view === 'workspace' && open > 0 && <span className="nav-count amber">{open}</span>}
+      </button>)}
+    </nav>
+    <div className="tools-menu">
+      <button className={`button secondary small ${tools.some(t => t.view === view) ? 'active' : ''}`} disabled={disabled} aria-expanded={toolsOpen} aria-controls="tools-navigation" onClick={() => setToolsOpen(!toolsOpen)}>Tools</button>
+      {toolsOpen && <nav id="tools-navigation" aria-label="Tools">{tools.map(tool => <button key={tool.view} className={`nav ${view === tool.view ? 'active' : ''}`} disabled={disabled} aria-current={view === tool.view ? 'page' : undefined} onClick={() => { setToolsOpen(false); onView(tool.view); }}>{tool.label}</button>)}</nav>}
+    </div>
+  </header>;
 }
