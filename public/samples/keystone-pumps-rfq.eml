@@ -1,0 +1,35 @@
+From: "Tomas Reyes" <treyes@keystone-pumps.example>
+To: quotes@rudco.example
+Subject: =?UTF-8?Q?RFQ_KP-1180_=E2=80=94_pump_skid_material?=
+Date: Thu, 08 Oct 2026 09:14:00 -0400
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="outer"
+
+--outer
+Content-Type: multipart/alternative; boundary="inner"
+
+--inner
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+Hi RudCo,
+
+Please quote the attached BOM for our KP-1180 pump skid. MTRs required on the =
+stainless. Delivery to Allentown, PA.
+
+Thanks,
+Tomas Reyes =E2=80=94 Keystone Pumps
+--inner
+Content-Type: text/html; charset=utf-8
+
+<p>Hi RudCo,</p><p>Please quote the attached BOM for our KP-1180 pump skid. MTRs required on the stainless.</p>
+--inner--
+--outer
+Content-Type: text/csv; name="KP-1180-BOM.csv"
+Content-Disposition: attachment; filename="KP-1180-BOM.csv"
+Content-Transfer-Encoding: base64
+
+SXRlbTtEZXNjcmlwdGlvbjtTaXplO1F0eTtVbml0CjE7MzE2IHN0YWlubGVzcyBzaGVldCAxNCBn
+YSAyQjsxMiB4IDE4IGluOzQ7cGNzCjI7MTAxOCBjb2xkIHJvbGxlZCByb3VuZCBiYXI7MS8yIGlu
+IGRpYSB4IDcyIGluOzIwO3Bjcwo=
+--outer--

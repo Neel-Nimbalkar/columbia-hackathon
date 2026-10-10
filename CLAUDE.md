@@ -10,7 +10,7 @@
 This project sends traces to PRISM. Env vars: `PRISMTRACE_API_KEY`,
 `PRISMTRACE_PROJECT_ID`, `PRISMTRACE_HOST`.
 
-Tracing is currently wired at: src/lib/server/providers/prism.ts (HTTP ingest helper), src/lib/server/providers/nicrron.ts (every extraction/clarification model call), src/lib/server/providers/jev.ts (every TypeSafe Jev classification call)
+Tracing is currently wired at: src/lib/server/providers/prism.ts (HTTP ingest helper), src/lib/server/providers/nicrron.ts (every extraction/clarification model call, and `chatVisionText` for OCR of scanned PDFs and photos in src/lib/server/parse.ts), src/lib/server/providers/jev.ts (every TypeSafe Jev classification call)
 
 **Standing rule.** Whenever you add or change an agent, chain, graph, tool,
 retriever, or any entry point that calls a model, wire it to PRISM before you

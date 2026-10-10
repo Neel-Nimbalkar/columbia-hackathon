@@ -4,6 +4,7 @@
  * comparable values. Unknowns stay null — nothing is guessed.
  */
 import type { Spec } from '../shared/schema';
+import { GAUGE_TABLES } from '../shared/metals';
 
 /* ------------------------------------------------------------------ */
 /* Numbers and units                                                    */
@@ -62,8 +63,15 @@ const GRADE_MATERIAL: [RegExp, Material][] = [
 
 export function normalizeMaterial(raw: string | null | undefined): Material | null {
   if (!raw) return null;
-  const s = raw.trim().toLowerCase().replace(/\s+/g, ' ');
+  let s = raw.trim().toLowerCase().replace(/[.]/g, '').replace(/\s+/g, ' ');
+  // Catalog-style "Steel, Mild" / "Steel, Cold Rolled" / "Stainless, 304" → "mild steel" / "cold rolled steel".
+  const comma = /^([a-z ]+?),\s*([a-z ]+)$/.exec(s);
+  if (comma) s = `${comma[2]} ${comma[1]}`.trim();
   for (const [re, m] of MATERIAL_SYNONYMS) if (re.test(s)) return m;
+  if (/\bstainless\b/.test(s)) return 'stainless steel';
+  if (/\balumin(i)?um\b/.test(s)) return 'aluminum';
+  if (/\b(chromoly|chrome moly|alloy steel)\b/.test(s)) return 'alloy steel';
+  if (/^(mild|carbon|low carbon|structural|hot rolled|cold rolled|cold finished|cold drawn|hr|cr|hrpo|p ?& ?o|commercial quality|cq)( steel)?( steel)?$|^(mild|carbon|structural) steel\b/.test(s)) return 'carbon steel';
   return null;
 }
 
@@ -100,17 +108,20 @@ export function normalizeTemper(raw: string | null | undefined): string | null {
 
 export function normalizeForm(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const s = raw.trim().toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (/^(sht|sheet|sheets|shts)$/.test(s)) return 'sheet';
+  let s = raw.trim().replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+  // Mill processing words describe the material, not the shape: "hot rolled sheets" → "sheets".
+  s = s.replace(/^(?:hot rolled|cold rolled|cold drawn|cold finished|hr|cr|crs|hrs|cf|cd|extruded|drawn|seamless|welded)\s+(?=\S)/, '');
+  if (/^(sht|sheet|sheets|shts|sh)$/.test(s)) return 'sheet';
   if (/^(pl|plt|plate|plates)$/.test(s)) return 'plate';
-  if (/^(rd|rnd|round|rod|round bar|rd bar|rnd bar|round rod|bar round)$/.test(s)) return 'round bar';
-  if (/^(flat|flat bar|flats|fb|flat stock)$/.test(s)) return 'flat bar';
-  if (/^(sq|square|square bar|sq bar)$/.test(s)) return 'square bar';
-  if (/^(hex|hex bar)$/.test(s)) return 'hex bar';
-  if (/^(tube|tubing|round tube|rd tube|tubes)$/.test(s)) return 'tube';
-  if (/^(square tube|sq tube|rectangular tube|rect tube)$/.test(s)) return 'square tube';
+  if (/^(rd|rnd|round|rounds|rod|rods|round bar|round bars|rd bar|rnd bar|round rod|bar round)$/.test(s)) return 'round bar';
+  if (/^(flat|flat bar|flat bars|flats|fb|flat stock)$/.test(s)) return 'flat bar';
+  if (/^(sq|square|squares|square bar|square bars|sq bar)$/.test(s)) return 'square bar';
+  if (/^(hex|hex bar|hexes)$/.test(s)) return 'hex bar';
+  if (/^(tube|tubing|round tube|round tubing|rd tube|tubes)$/.test(s)) return 'tube';
+  if (/^(square tube|square tubing|sq tube|sq tubing|rectangular tube|rectangular tubing|rect tube|rect tubing)$/.test(s)) return 'square tube';
   if (/^(pipe|pipes)$/.test(s)) return 'pipe';
   if (/^(angle|angles|ang)$/.test(s)) return 'angle';
+  if (/^(channel|channels)$/.test(s)) return 'channel';
   if (/^(bar)$/.test(s)) return 'bar';
   return s || null;
 }
@@ -134,26 +145,7 @@ export function normalizeFinish(raw: string | null | undefined): string | null {
 /* Gauge                                                                */
 /* ------------------------------------------------------------------ */
 
-/**
- * Gauge → nominal thickness (in). Gauge is material dependent:
- * - Carbon steel: Manufacturers' Standard Gauge for sheet steel.
- * - Stainless steel: common stainless sheet gauge (nominal decimals).
- * - Aluminum: Brown & Sharpe (AWG).
- */
-export const GAUGE_TABLES: Record<'carbon steel' | 'stainless steel' | 'aluminum', { name: string; table: Record<number, number> }> = {
-  'carbon steel': {
-    name: "Manufacturers' Standard Gauge (sheet steel)",
-    table: { 7: 0.1793, 8: 0.1644, 10: 0.1345, 11: 0.1196, 12: 0.1046, 13: 0.0897, 14: 0.0747, 16: 0.0598, 18: 0.0478, 20: 0.0359, 22: 0.0299, 24: 0.0239, 26: 0.0179, 28: 0.0149 },
-  },
-  'stainless steel': {
-    name: 'Stainless sheet gauge (nominal mill decimals)',
-    table: { 7: 0.18, 8: 0.165, 10: 0.135, 11: 0.12, 12: 0.105, 14: 0.075, 16: 0.06, 18: 0.048, 20: 0.036, 22: 0.03, 24: 0.024, 26: 0.018, 28: 0.015 },
-  },
-  aluminum: {
-    name: 'Brown & Sharpe (AWG) aluminum gauge',
-    table: { 8: 0.1285, 10: 0.1019, 11: 0.0907, 12: 0.0808, 14: 0.0641, 16: 0.0508, 18: 0.0403, 20: 0.032, 22: 0.0253, 24: 0.0201, 26: 0.0159 },
-  },
-};
+export { GAUGE_TABLES };
 
 export function gaugeToInches(gauge: number, material: string | null): { inches: number; table: string } | null {
   const entry = material === 'alloy steel' ? GAUGE_TABLES['carbon steel'] : GAUGE_TABLES[material as keyof typeof GAUGE_TABLES];
@@ -170,7 +162,7 @@ export type QtyUnit = 'pc' | 'ft' | 'lb' | 'kg' | 'in' | 'm';
 export function normalizeQtyUnit(raw: string | null | undefined): QtyUnit | null {
   if (!raw) return null;
   const s = raw.trim().toLowerCase().replace(/[().]/g, '');
-  if (/^(pc|pcs|piece|pieces|ea|each|sheet|sheets|sht|shts|plate|plates|bar|bars|length|lengths|lgth|lgths|units?|qty|nos?|blank|blanks|tube|tubes|stick|sticks)$/.test(s)) return 'pc';
+  if (/^(pc|pcs|piece|pieces|ea|each|sheet|sheets|sh|sht|shts|plate|plates|bar|bars|length|lengths|lg|lgs|lgth|lgths|units?|qty|nos?|blank|blanks|tube|tubes|stick|sticks|pk|pkg)$/.test(s)) return 'pc';
   if (/^(ft|feet|foot|lf|lin ft|linear feet)$/.test(s)) return 'ft';
   if (/^(lb|lbs|pound|pounds|#)$/.test(s)) return 'lb';
   if (/^(kg|kgs|kilo|kilos|kilogram|kilograms)$/.test(s)) return 'kg';

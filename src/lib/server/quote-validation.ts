@@ -11,6 +11,7 @@ export async function validateQuoteForExport(submitted: Quote): Promise<Quote> {
   return buildQuote({
     id: submitted.id,
     customer: submitted.customer,
+    rfqReference: submitted.rfqReference ?? null,
     date: submitted.date,
     expires: submitted.expires,
     originalText: submitted.originalText,

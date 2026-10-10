@@ -1,18 +1,42 @@
 import { z } from 'zod';
 import { quoteSchema } from '@/lib/shared/schema';
-import { exportBlockers,generateQuotePdf } from '@/lib/server/pdf';
+import { errorJson, toErrorResponse } from '@/lib/server/errors';
+import { exportBlockers, generateQuotePdf } from '@/lib/server/pdf';
 import { validateQuoteForExport } from '@/lib/server/quote-validation';
-export const runtime='nodejs';
-const requestSchema=z.object({quote:quoteSchema,demo:z.boolean().default(false)});
-export async function POST(request:Request){
- try {
-  if(Number(request.headers.get('content-length')??0)>1_000_000)return Response.json({error:{code:'TOO_LARGE',message:'Quotation exceeds the 1 MB export limit.'}},{status:413});
-  const raw=await request.text();if(raw.length>1_000_000)return Response.json({error:{code:'TOO_LARGE',message:'Quotation exceeds the export limit.'}},{status:413});
-  let data:unknown;try{data=JSON.parse(raw);}catch{return Response.json({error:{code:'INVALID_JSON',message:'Send valid JSON.'}},{status:400});}
-  const parsed=requestSchema.safeParse(data);if(!parsed.success)return Response.json({error:{code:'INVALID_QUOTE',message:'Quotation data is invalid.',details:parsed.error.flatten()}},{status:400});
-  const {demo}=parsed.data;
-  const quote=demo?{...parsed.data.quote,disclosure:'DEMO SAMPLE — fictional quotation for interface review. All costs, benchmarks, inventory and lead times are synthetic. No certificates are verified.'}:await validateQuoteForExport(parsed.data.quote);
-  const blockers=exportBlockers(quote);if(blockers.length)return Response.json({error:{code:'QUOTE_BLOCKED',message:'Resolve or exclude all blocked lines before export.',details:blockers}},{status:422});
-  const bytes=await generateQuotePdf(quote,demo);return new Response(Buffer.from(bytes),{headers:{'Content-Type':'application/pdf','Content-Disposition':`attachment; filename="${quote.id.replace(/[^a-zA-Z0-9_-]/g,'_')}.pdf"`,'Cache-Control':'no-store'}});
- }catch(error){const e=error as Error&{code?:string;status?:number};return Response.json({error:{code:e.code??'PDF_FAILED',message:e.code?e.message:'PDF generation failed. Please retry.'}},{status:e.status??500});}
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const requestSchema = z.object({ quote: quoteSchema });
+
+/**
+ * POST { quote } → application/pdf. Every price, match, compliance status and
+ * the ready flag are recomputed server-side first; client-claimed values are
+ * discarded, so a tampered quote cannot export.
+ */
+export async function POST(request: Request): Promise<Response> {
+  try {
+    if (Number(request.headers.get('content-length') ?? 0) > 2_000_000) return errorJson(413, 'PAYLOAD_TOO_LARGE', 'Quotation exceeds the export limit.');
+    let data: unknown;
+    try { data = await request.json(); } catch { return errorJson(400, 'BAD_REQUEST', 'Send valid JSON.'); }
+    const parsed = requestSchema.safeParse(data);
+    if (!parsed.success) return errorJson(400, 'VALIDATION_FAILED', 'Quotation data is invalid.', parsed.error.issues.slice(0, 10).map((i) => `${i.path.join('.')}: ${i.message}`));
+    const submitted = parsed.data.quote;
+    if (!submitted.customer.trim()) return errorJson(422, 'QUOTE_BLOCKED', 'Add the customer name before exporting.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(submitted.date) || !/^\d{4}-\d{2}-\d{2}$/.test(submitted.expires) || submitted.expires < submitted.date)
+      return errorJson(422, 'QUOTE_BLOCKED', 'Set a valid issue date and an expiry on or after it.');
+    const quote = await validateQuoteForExport(submitted);
+    const blockers = exportBlockers(quote);
+    if (blockers.length) return errorJson(422, 'QUOTE_BLOCKED', 'Resolve or exclude every blocked line before export.', blockers);
+    const bytes = await generateQuotePdf(quote);
+    return new Response(Buffer.from(bytes), {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${quote.id.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf"`,
+        'Cache-Control': 'no-store',
+      },
+    });
+  } catch (error) {
+    return toErrorResponse(error, 'api/quote/pdf');
+  }
 }

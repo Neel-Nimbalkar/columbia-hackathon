@@ -7,12 +7,12 @@ Source of truth: `src/lib/shared/schema.ts`. Frontend client: `src/lib/client/ap
 
 | Field | Type | Meaning |
 |---|---|---|
-| file | optional file | PDF, CSV, XLSX or TXT; max 10 MB in UI; enforce server-side |
+| file | optional, repeatable (0–5) | PDF (text, fillable form, XFA, scanned), DOCX, XLSX/XLSM, CSV/TSV, TXT, EML (attachments are parsed), PNG/JPG/WebP/GIF; 10 MB each, enforced server-side |
 | text | string | Original email/text; max 100,000 characters in UI |
 | customer | string | Customer/company; max 200 characters |
 | targetMargin | string containing fraction | `0.2` = 20%; permitted 0 to 0.8 |
 
-At least one of file/text is required. If both are supplied, parse both with distinct source references. Return `quoteSchema` JSON directly, not `{quote: ...}`. Timeout in UI is 120 seconds. The frontend preserves input after failure.
+At least one of file/text is required. Every source keeps distinct references (page/line, sheet/row, table/row, attachment). Scanned pages and photos are transcribed by the vision model and marked "(transcribed)"; truncation, OCR and skipped attachments are reported in `warnings`. Return `quoteSchema` JSON directly, not `{quote: ...}`. The UI waits up to 5 minutes.
 
 ## Clarify / correct / exclude / reprice
 `POST /api/rfq/clarify`, application/json.
@@ -24,13 +24,12 @@ At least one of file/text is required. If both are supplied, parse both with dis
 `corrections`: optional complete nullable `Spec`; blank fields remain null. `included`: optional boolean; explicit exclusion changes readiness and totals. `targetMargin`: optional number (0–0.8); reprices all included lines. The frontend includes the current quote for stateless operation. Validate the payload with `clarifyRequestSchema`. Return a recomputed complete quote. Stable line IDs and original source text must survive. Any conflicts or unknowns are returned as questions/blockers. Recompute inventory across included lines, not only the affected line.
 
 ## Export
-`POST /api/quote/pdf`, application/json: `{quote:<Quote>,demo?:boolean}`.
+`POST /api/quote/pdf`, application/json: `{quote:<Quote>}`.
 
 Success: PDF binary with `Content-Type: application/pdf`, `Content-Disposition: attachment; filename="...pdf"`, `Cache-Control: no-store`.
 
-This endpoint exists in the frontend/PDF PR. Production calls delegate to `validateQuoteForExport(submitted)` in `src/lib/server/quote-validation.ts`, which currently fails closed with 503. The partner replaces it with server-owned normalization/matching/pricing/compliance recomputation; never just trust the client. It returns the authoritative Quote or throws a typed `{code,status}` error. Then `exportBlockers` checks the included lines and `generateQuotePdf` renders in memory.
+`validateQuoteForExport` recomputes every match, price, compliance status and the ready flag from the submitted requirements with the server-owned catalog; client-claimed derived fields are discarded. A missing customer, invalid dates or any `exportBlockers` entry returns 422 `QUOTE_BLOCKED` with details; otherwise `generateQuotePdf` renders in memory.
 
-`demo:true` produces a clearly labeled fictional sample only. It never yields a production-approved document. The route overwrites the disclosure; the PDF title/header/footer and terms disclose the demo. Unresolved structural blockers still return 422. The backend partner can disable this sample path in production if desired, but must preserve frontend sample review or document the difference.
 
 ## Errors
 
@@ -38,7 +37,7 @@ This endpoint exists in the frontend/PDF PR. Production calls delegate to `valid
 {"error":{"code":"QUOTE_BLOCKED","message":"Resolve or exclude all blocked lines before export.","details":["line-1: no matched SKU"]}}
 ```
 
-Use 400 invalid input, 413 limits, 422 processing/readiness problems, 429 upstream rate limiting if appropriate, 502 provider failures, 503 missing backend/provider configuration. No secrets or raw upstream credentials in error messages. The client raises `ApiRequestError` carrying `code`, `status` and `details` (a 404/405 without an envelope becomes `BACKEND_NOT_CONNECTED`). The UI shows actionable `error.message`; it never replaces failed real requests with fixtures. Responses that fail `quoteSchema` are rejected visibly.
+Use 400 invalid input, 413 limits, 422 processing/readiness problems, 429 upstream rate limiting if appropriate, 502 provider failures, 503 missing backend/provider configuration. No secrets or raw upstream credentials in error messages. The client raises `ApiRequestError` carrying `code`, `status` and `details`. The UI shows actionable `error.message`; there is no fixture fallback. Responses that fail `quoteSchema` are rejected visibly.
 
 ## Quote semantics
 - `spec`: customer values in stated units, nullable unknowns.

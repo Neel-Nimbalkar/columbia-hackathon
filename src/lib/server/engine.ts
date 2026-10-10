@@ -12,6 +12,7 @@ import { gaugeToInches, r4, specDimsInches } from './normalize';
 export interface QuoteInputs {
   id: string;
   customer: string;
+  rfqReference?: string | null;
   date: string;
   expires: string;
   originalText: string;
@@ -341,6 +342,7 @@ export function buildQuote(input: QuoteInputs): Quote {
   return {
     id: input.id,
     customer: input.customer,
+    rfqReference: input.rfqReference ?? null,
     date: input.date,
     expires: input.expires,
     originalText: input.originalText,
