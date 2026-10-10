@@ -40,7 +40,9 @@ export async function processRfq(input: { text: string; files: File[]; customer:
   body.set('customer', input.customer);
   body.set('targetMargin', String(input.targetMargin));
   for (const f of input.files) body.append('file', f);
-  const signal = input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(300_000)]) : AbortSignal.timeout(300_000);
+  const timeout = AbortSignal.timeout(300_000);
+  // AbortSignal.any is missing in older Safari; fall back to the caller's signal alone.
+  const signal = !input.signal ? timeout : typeof AbortSignal.any === 'function' ? AbortSignal.any([input.signal, timeout]) : input.signal;
   return quoteResponse(await send('/api/rfq/process', { method: 'POST', body, signal }));
 }
 

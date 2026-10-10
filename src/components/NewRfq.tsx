@@ -121,8 +121,8 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
             placeholder={'Paste the buyer\'s email, e.g.\n\nNeed 6 pcs 304 SS sheet 16ga 12" x 24" #4, and 10 pcs 1018 CRS rd bar 1" x 36"…'}
           />
           <div className="intake-row">
-            <label>Customer <span className="muted">(optional — read from the RFQ)</span>
-              <input disabled={!!processing || loadingSample} value={draft.customer} maxLength={200} onChange={(e) => onDraft({ ...draft, customer: e.target.value })} placeholder="Company name" />
+            <label>Customer
+              <input disabled={!!processing || loadingSample} value={draft.customer} maxLength={200} onChange={(e) => onDraft({ ...draft, customer: e.target.value })} placeholder="Optional — read from the RFQ if left blank" />
             </label>
             <label>Target gross margin
               <span className="input-suffix"><input disabled={!!processing || loadingSample} type="number" min={0} max={80} step={1} value={draft.margin} onChange={(e) => onDraft({ ...draft, margin: e.target.value })} /><span>%</span></span>

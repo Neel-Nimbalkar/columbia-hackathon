@@ -3,10 +3,14 @@ import { useEffect, useRef, useState } from 'react';
 import type { Signature } from '@/lib/shared/acceptance';
 import type { Quote, Spec } from '@/lib/shared/schema';
 import { ApiRequestError, downloadPdf, downloadBlob, signQuote, processRfq, updateQuote } from '@/lib/client/api';
+import { recordProcessed, recordUpdate, setStatus, useLedger } from '@/lib/client/ledger';
 import { Sidebar, type View } from '@/components/Sidebar';
 import { NewRfq, type IntakeDraft } from '@/components/NewRfq';
 import { Workspace } from '@/components/Workspace';
 import { FinalQuote } from '@/components/FinalQuote';
+import { Pipeline } from '@/components/Pipeline';
+import { Catalog } from '@/components/Catalog';
+import { Calculator } from '@/components/Calculator';
 import { Message } from '@/components/ui';
 
 export interface Processing { startedAt: number; label: string; hasFiles: boolean; controller: AbortController }
@@ -28,6 +32,7 @@ export default function Home() {
   const [error, setError] = useState<{ message: string; hint?: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState<IntakeDraft>({ text: '', files: [], customer: '', margin: '20' });
+  const ledger = useLedger();
   const mainRef = useRef<HTMLElement>(null);
 
   useEffect(() => { mainRef.current?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }); }, [view]);
@@ -57,6 +62,7 @@ export default function Home() {
     setProcessing({ startedAt, label: input.source, hasFiles: input.files.length > 0, controller });
     try {
       const q = await processRfq({ text: input.text, files: input.files, customer: input.customer, targetMargin: input.margin / 100, signal: controller.signal });
+      recordProcessed(q, input.source, Date.now() - startedAt);
       open(q);
       const ready = q.items.filter((i) => i.status === 'Ready').length;
       setNotice(`${q.items.length} line${q.items.length === 1 ? '' : 's'} extracted · ${ready} ready${q.ready ? ' — the quote can be exported.' : '.'}`);
@@ -74,6 +80,7 @@ export default function Home() {
     try {
       const next = await updateQuote({ quote, itemId, ...input });
       replaceQuote(next);
+      recordUpdate(next);
       return true;
     } catch (e) {
       fail(e);
@@ -89,7 +96,11 @@ export default function Home() {
     setError(null);
     try {
       await downloadPdf(q);
-      setNotice('PDF downloaded.');
+      recordUpdate(q);
+      if (ledger.find((e) => e.id === q.id)?.status === 'draft') {
+        setStatus(q.id, 'sent');
+        setNotice('PDF downloaded. The quote is marked as sent in Pipeline — mark it won or lost there when the buyer replies.');
+      } else setNotice('PDF downloaded.');
     } catch (e) {
       fail(e);
     } finally {
@@ -97,6 +108,10 @@ export default function Home() {
     }
   }
 
+  function editQuote(q: Quote) {
+    replaceQuote(q);
+    recordUpdate(q);
+  }
 
   async function accept(signature: Signature) {
     if (!quote || busy) return;
@@ -105,13 +120,16 @@ export default function Home() {
       const result = await signQuote(quote, signature);
       setSigned({ ...result, name: signature.name });
       downloadBlob(result.blob, `${quote.id}-signed.pdf`);
-      setNotice('Signed PDF downloaded. Save it and send it to RudCo to request purchase.');
+      // A typed purchase signature is the buyer accepting the quote.
+      recordUpdate(quote);
+      if (ledger.some((e) => e.id === quote.id)) setStatus(quote.id, 'won');
+      setNotice('Signed PDF downloaded and the quote is marked won in Pipeline. Save it and send it to RudCo to request purchase.');
     } catch (e) { fail(e); } finally { setBusy(null); }
   }
 
   return (
     <div className="shell">
-      <Sidebar disabled={!!busy || !!processing} view={view} onView={(v) => { if (busy || processing) return; setView(v); setError(null); }} quote={quote} />
+      <Sidebar disabled={!!busy || !!processing} view={view} onView={(v) => { if (busy || processing) return; setView(v); setError(null); }} quote={quote} ledger={ledger} />
       <div className="main-col">
         <main ref={mainRef}>
           {error && (
@@ -133,7 +151,19 @@ export default function Home() {
               onNew={() => setView('new')}
             />
           )}
-          {view === 'final' && <FinalQuote quote={quote} busy={busy} onEdit={replaceQuote} onExport={exportPdf} onSign={accept} signed={signed} onDownloadSigned={() => { if (quote && signed) downloadBlob(signed.blob, `${quote.id}-signed.pdf`); }} onBack={(id) => { if (busy) return; if (id) setSelected(id); setView('workspace'); }} onNew={() => setView('new')} />}
+          {view === 'final' && <FinalQuote quote={quote} busy={busy} onEdit={editQuote} onExport={exportPdf} onSign={accept} signed={signed} onDownloadSigned={() => { if (quote && signed) downloadBlob(signed.blob, `${quote.id}-signed.pdf`); }} onBack={(id) => { if (busy) return; if (id) setSelected(id); setView('workspace'); }} onNew={() => setView('new')} />}
+          {view === 'pipeline' && <Pipeline ledger={ledger} currentId={quote?.id ?? null} onOpen={(q) => { open(q); setNotice(`Reopened ${q.id}.`); }} onNew={() => setView('new')} />}
+          {view === 'catalog' && (
+            <Catalog
+              onAddToRfq={(line) => {
+                setDraft((d) => ({ ...d, text: d.text.trim() ? `${d.text.trimEnd()}\n${line}` : `Please quote:\n${line}` }));
+                setNotice('Line added to the New RFQ draft.');
+              }}
+              draftLines={draft.text.split('\n').filter((l) => l.trim()).length}
+              onGoToDraft={() => setView('new')}
+            />
+          )}
+          {view === 'calculator' && <Calculator />}
         </main>
       </div>
     </div>
