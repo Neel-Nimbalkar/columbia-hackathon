@@ -31,10 +31,10 @@ export async function askJev(state: string, questions: Record<string, JevQuestio
   const input = [{ role: 'user', content: `${state.slice(0, 8000)}\n\nQuestions: ${JSON.stringify(questions)}` }];
   try {
     const answers = await askJevInner(state, questions);
-    await emitTrace({ model: `typesafe/${answers.model}`, input, output: JSON.stringify(answers.answers), latencyMs: Date.now() - started, sessionId: opts.sessionId });
+    void emitTrace({ model: `typesafe/${answers.model}`, input, output: JSON.stringify(answers.answers), latencyMs: Date.now() - started, sessionId: opts.sessionId });
     return answers;
   } catch (err) {
-    await emitTrace({ model: `typesafe/${config().typesafe.model}`, input, output: `ERROR ${(err as { code?: string }).code ?? ''}: ${(err as Error).message}`, latencyMs: Date.now() - started, sessionId: opts.sessionId });
+    void emitTrace({ model: `typesafe/${config().typesafe.model}`, input, output: `ERROR ${(err as { code?: string }).code ?? ''}: ${(err as Error).message}`, latencyMs: Date.now() - started, sessionId: opts.sessionId });
     throw err;
   }
 }

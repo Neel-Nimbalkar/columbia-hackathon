@@ -187,7 +187,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .original > span { display: block; font-size: 11px; color: var(--muted); font-weight: 500; }
 .original.compact { margin-bottom: 14px; }
 .ask { border: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius); padding: 12px; margin-bottom: 12px; }
-.ask-head { display: flex; align-items: center; gap: 6px; color: var(--ink); }
+.ask-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--ink); }
 .ask-head svg { color: var(--accent); }
 .ask li { color: var(--ink-2); }
 .ask ul { margin: 6px 0 10px; padding-left: 18px; }
@@ -446,3 +446,33 @@ summary:focus-visible { outline: 2px solid var(--accent); }
 .tools-menu > nav { position: absolute; right: 0; top: calc(100% + 8px); min-width: 170px; display: flex; flex-direction: column; gap: 4px; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 6px 24px rgb(16 17 26 / 12%); z-index: 20; }
 .tools-menu > button.active { background: var(--accent-bg); color: var(--accent-ink); }
 @media (max-width: 430px) { .workflow-nav .brand { font-size: 20px; } .workflow-nav { gap: 6px; } .step-number { display: none; } .nav { padding: 6px; } }
+
+/* RFQ source references: where each item and question comes from in the uploaded RFQ */
+.row-source { display: flex; align-items: center; gap: 4px; margin-top: 2px; font-size: 11px; overflow-wrap: anywhere; }
+.line-source { border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
+.line-source-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 6px 6px 6px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+.line-source-head > span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.line-source-head strong { color: var(--ink); font-weight: 550; }
+.line-source blockquote { margin: 0; padding: 8px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ask-ref { margin-left: auto; font-size: 11.5px; color: var(--muted); text-align: right; overflow-wrap: anywhere; }
+.issue-ref { display: inline; padding: 0 5px; border-radius: 4px; background: var(--accent-bg); color: var(--accent-ink); font-size: 0.95em; font-weight: 500; white-space: normal; }
+button.issue-ref { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+button.issue-ref:hover { background: #e6e2ff; }
+.issue-where { font-weight: 500; color: var(--ink-2); margin-bottom: 1px; }
+.source-intro { font-size: 12.5px; color: var(--ink-2); margin-bottom: 10px; overflow-wrap: anywhere; }
+.source-intro strong { font-weight: 600; color: var(--ink); }
+.source-text > .source-line { display: grid; grid-template-columns: minmax(84px, 170px) minmax(0, 1fr) auto; gap: 10px; align-items: baseline; }
+.source-text.no-refs > .source-line { grid-template-columns: minmax(0, 1fr) auto; }
+.source-loc { color: var(--muted); font-size: 10.5px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
+.source-body { min-width: 0; }
+.source-tags { display: inline-flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.source-item { font-family: system-ui, sans-serif; font-size: 10.5px; font-weight: 600; line-height: 1.6; padding: 0 7px; border-radius: 999px; border: 1px solid transparent; white-space: nowrap; }
+.source-item.issue { color: var(--amber); background: var(--amber-bg); border-color: #f0d9a8; }
+.source-item.ready { color: var(--green); background: var(--green-bg); border-color: #bfe3cf; }
+.source-item.excluded { color: var(--muted); background: var(--surface-2); border-color: var(--border); }
+.source-item[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--accent); }
+@media (max-width: 640px) {
+  .source-text > .source-line { grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; }
+  .source-loc { grid-column: 1 / -1; text-align: left; }
+  .ask-ref { margin-left: 0; flex-basis: 100%; text-align: left; }
+}

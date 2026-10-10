@@ -165,7 +165,8 @@ function LedgerRow({ e, today, current, onOpen }: { e: LedgerEntry; today: strin
   const ready = e.quote.items.filter((i) => i.included && i.status === 'Ready').length;
   const included = e.quote.items.filter((i) => i.included).length;
   const margin = quoteMargin(e.quote);
-  const days = Math.ceil((Date.parse(e.quote.expires) - Date.now()) / DAY);
+  const parsedDays = Math.ceil((Date.parse(e.quote.expires) - Date.now()) / DAY);
+  const days = Number.isFinite(parsedDays) ? parsedDays : null;
   return (
     <tr className={current ? 'current' : ''}>
       <td>
@@ -179,7 +180,7 @@ function LedgerRow({ e, today, current, onOpen }: { e: LedgerEntry; today: strin
       <td>{ready}/{included} ready</td>
       <td className="num">{money(e.quote.total)}</td>
       <td className="num">{margin === null ? '—' : pct(margin)}</td>
-      <td>{e.quote.expires}<small className={st === 'sent' && days <= 7 ? 'text-amber' : ''}>{st === 'won' || st === 'lost' ? '' : days < 0 ? 'expired' : `${days} d left`}</small></td>
+      <td>{e.quote.expires}<small className={st === 'sent' && days !== null && days <= 7 ? 'text-amber' : ''}>{st === 'won' || st === 'lost' || days === null ? '' : days < 0 ? 'expired' : `${days} d left`}</small></td>
       <td>
         <div className="status-cell">
           <Badge status={st} />

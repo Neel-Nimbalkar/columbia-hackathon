@@ -109,8 +109,17 @@ function chunkLines(sources: ParsedSource[], budget: number): Line[][] {
     if (size + n > budget && cur.length) {
       chunks.push(cur);
       // Carry a few lines over so an item that straddles the cut is seen whole; duplicates are merged later.
-      cur = cur.slice(-6);
-      size = cur.reduce((sum, x) => sum + x.ref.length + x.text.length + 4, 0);
+      // The carry-over is bounded so one very long line is not repeated in every following chunk.
+      const carry: Line[] = [];
+      let carrySize = 0;
+      for (const x of cur.slice(-6).reverse()) {
+        const xs = x.ref.length + x.text.length + 4;
+        if (carrySize + xs > budget / 4) break;
+        carry.unshift(x);
+        carrySize += xs;
+      }
+      cur = carry;
+      size = carrySize;
     }
     cur.push(l);
     size += n;
@@ -158,6 +167,7 @@ async function extractChunk(lines: Line[], sources: ParsedSource[], sessionId: s
 export async function runExtraction(sources: ParsedSource[], sessionId: string): Promise<{ extraction: Extraction; model: string; notes: string[] }> {
   const notes: string[] = [];
   let chunks = chunkLines(sources, CHUNK_CHARS);
+  if (!chunks.length) return { extraction: { customer: null, rfqReference: null, items: [] }, model: 'none', notes };
   const maxChunks = Math.ceil(MAX_EXTRACT_CHARS / CHUNK_CHARS);
   if (chunks.length > maxChunks) {
     const last = chunks[maxChunks - 1]!.at(-1)!;
@@ -191,15 +201,20 @@ export async function runExtraction(sources: ParsedSource[], sessionId: string):
 type Provenance = ExtractedItem['provenance'];
 const squash = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
 
-function normalizeStandard(s: string): string {
-  return s.trim().toUpperCase().replace(/\s+/g, ' ').replace(/^(ASTM|AMS|ASME|SAE|QQ|MIL|EN|ISO|AWS)\s*-?\s*/, (m) => `${m.replace(/[-\s]/g, '')} `).trim();
+/** "astm-a240" → "ASTM A240". The body prefix must be followed by a separator or a designation, so "ENGINEERING" is left alone. */
+export function normalizeStandard(s: string): string {
+  return s.trim().toUpperCase().replace(/\s+/g, ' ').replace(/^(ASTM|AMS|ASME|SAE|QQ|MIL|EN|ISO|AWS)(?:[\s-]+|(?=[A-Z]?\d))/, '$1 ').trim();
 }
 
-function normalizeCountry(s: string | null): string | null {
+export function normalizeCountry(s: string | null): string | null {
   if (!s) return null;
-  if (/\b(usa|u\.s\.a?\.?|united states|us|domestic|american)\b/i.test(s)) return 'USA';
+  if (/(?:^|[^a-z])(?:usa|u\.s\.(?:a\.?)?|u\.s|united states|us|domestic|american)(?![a-z])/i.test(s)) return 'USA';
   return s.trim();
 }
+
+/** Keep transcribed values inside the quote contract so a quote can always round-trip through clarify and export. */
+const clip = (s: string, max = 1000) => (s.length > max ? s.slice(0, max) : s);
+const MAX_DIM = 100_000;
 
 const MTR_RE = /\b(mtrs?|mill test|mill cert|material test|test reports?|certs?|certifications?|cmtr|3\.1)\b/i;
 
@@ -213,6 +228,12 @@ export function toSpec(raw: RawItem, provenance: Provenance = {}): { spec: Spec;
   const inferred = new Set(raw.inferredFields.map((f) => f.trim()));
   const mark = (field: string, changed: boolean) => { prov[field] = inferred.has(field) ? 'suggestion' : changed ? 'normalized' : 'customer'; };
 
+  raw = {
+    ...raw,
+    ...Object.fromEntries((['material', 'grade', 'temper', 'form', 'finish', 'quantityUnit', 'countryOfOrigin'] as const).map((k) => [k, raw[k] === null ? null : clip(raw[k]!)])),
+    standards: raw.standards.map((x) => clip(x.trim(), 100)).filter(Boolean),
+    certifications: raw.certifications.map((x) => clip(x.trim(), 100)).filter(Boolean),
+  };
   const g = normalizeGrade(raw.grade);
   if (g.grade) { spec.grade = g.grade; mark('grade', squash(g.grade) !== squash(raw.grade ?? '')); }
   const temper = normalizeTemper(raw.temper) ?? g.temper;
@@ -232,7 +253,8 @@ export function toSpec(raw: RawItem, provenance: Provenance = {}): { spec: Spec;
   // Dimensions: keep the customer's unit when it is consistent; convert mixed units to inches.
   const dims = (['thickness', 'width', 'length', 'diameter', 'tolerance'] as const)
     .map((k) => ({ k, value: parseMeasure(raw[k]?.value ?? null), unit: normalizeUnit(raw[k]?.unit ?? null) }))
-    .filter((d) => d.value !== null && d.value <= 100_000 && r4(d.value) > 0);
+    // Bounds apply to the stored value, so check both as written and after conversion to inches.
+    .filter((d) => d.value !== null && d.value <= MAX_DIM && r4(d.value) > 0 && (!d.unit || (r4(toInches(d.value, d.unit)) > 0 && toInches(d.value, d.unit) <= MAX_DIM)));
   const units = new Set(dims.map((d) => d.unit));
   if (dims.length) {
     if (units.size === 1) {
@@ -252,7 +274,7 @@ export function toSpec(raw: RawItem, provenance: Provenance = {}): { spec: Spec;
     }
   }
 
-  const gauge = typeof raw.gauge === 'number' ? raw.gauge : parseMeasure(raw.gauge);
+  const gauge = typeof raw.gauge === 'number' ? raw.gauge : parseMeasure(raw.gauge?.replace(/\s*(?:ga\.?|gauge|gage)\s*$/i, '').replace(/^#\s*/, '') ?? null);
   if (gauge !== null && Number.isInteger(gauge) && gauge >= 1 && gauge <= 40) { spec.gauge = gauge; mark('gauge', false); }
 
   const qty = parseMeasure(raw.quantity);
@@ -274,9 +296,9 @@ export function toSpec(raw: RawItem, provenance: Provenance = {}): { spec: Spec;
   }
   spec.mtr = mtr;
   if (mtr !== null) { mark('mtr', false); if (inferred.has('mtrRequested')) prov.mtr = 'suggestion'; }
-  spec.certifications = certs;
+  spec.certifications = [...new Set(certs)].slice(0, 20);
   if (certs.length) mark('certifications', false);
-  spec.standards = [...new Set(raw.standards.map(normalizeStandard).filter(Boolean))];
+  spec.standards = [...new Set(raw.standards.map(normalizeStandard).filter(Boolean))].slice(0, 20);
   if (spec.standards.length) mark('standards', false);
   spec.countryOfOrigin = normalizeCountry(raw.countryOfOrigin);
   if (spec.countryOfOrigin) mark('countryOfOrigin', spec.countryOfOrigin !== raw.countryOfOrigin?.trim());

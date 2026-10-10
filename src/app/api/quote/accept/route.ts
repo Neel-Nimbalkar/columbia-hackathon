@@ -14,7 +14,10 @@ export async function POST(request: Request): Promise<Response> {
     let body: unknown;
     try { body = JSON.parse(raw); } catch { return errorJson(400, 'INVALID_JSON', 'Send valid JSON.'); }
     const parsed = requestSchema.safeParse(body);
-    if (!parsed.success) return errorJson(400, 'INVALID_SIGNATURE', 'Enter your full name, valid email, company, and confirm purchase authorization.');
+    if (!parsed.success) {
+      if (parsed.error.issues.some((i) => i.path[0] === 'quote')) return errorJson(400, 'VALIDATION_FAILED', 'Quotation data is invalid. Recalculate the quote and try again.');
+      return errorJson(400, 'INVALID_SIGNATURE', 'Enter your full name, valid email, company, and confirm purchase authorization.');
+    }
     const { quote, acceptance } = await acceptQuote(parsed.data.quote, parsed.data.signature);
     const bytes = await generateQuotePdf(quote, acceptance);
     return new Response(Buffer.from(bytes), { headers: {

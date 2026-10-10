@@ -61,6 +61,13 @@ const UNSUPPORTED_HINTS: Record<string, string> = {
   '.zip': 'Archives are not opened. Upload the RFQ files themselves.',
 };
 
+const MIME_EXTENSIONS: Record<string, string> = {
+  'application/pdf': '.pdf', 'text/csv': '.csv', 'text/plain': '.txt', 'message/rfc822': '.eml',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif',
+};
+
 export const ACCEPTED_EXTENSIONS = Object.keys(EXTENSIONS);
 
 const extOf = (name: string) => /\.[^.]+$/.exec(name.toLowerCase())?.[0] ?? '';
@@ -327,7 +334,7 @@ Output only the transcription, with no commentary.`;
 
 async function ocr(image: VisionImage, ctx: ParseContext): Promise<string> {
   const { data } = await chatVisionText(OCR_PROMPT, image, { maxTokens: 6000, timeoutMs: 120_000, sessionId: ctx.sessionId });
-  return data.replace(/^```[a-z]*\n?|```$/g, '');
+  return data.trim().replace(/^```[a-z]*\n?|\n?```$/g, '');
 }
 
 const IMAGE_MAGIC: [string, (b: Uint8Array) => boolean][] = [
@@ -653,6 +660,8 @@ async function parseEml(buf: Uint8Array, name: string, ctx: ParseContext, notes:
   const attachmentNames = new Set<string>();
   for (const a of wanted.slice(0, MAX_ATTACHMENTS)) {
     let attName = a.name.replace(/[^\w.\- ()]+/g, '_').slice(0, 100) || 'attachment';
+    // Some mail clients drop the extension; fall back to the declared MIME type.
+    if (!kindForFileName(attName) && !extOf(attName) && MIME_EXTENSIONS[a.contentType]) attName += MIME_EXTENSIONS[a.contentType];
     const originalName = attName;
     for (let n = 2; attachmentNames.has(attName); n++) attName = originalName.replace(/(\.[^.]+)?$/, ` (${n})$1`);
     attachmentNames.add(attName);

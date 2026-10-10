@@ -159,3 +159,27 @@ test('review never claims competitiveness for an unconfirmed benchmark', async (
   assert.ok(!document.querySelector('.line-overview')!.textContent!.includes('below'));
   await act(async () => root.unmount()); dom.window.close();
 });
+
+test('review shows where each item and question comes from in the RFQ and links between them', async () => {
+  const { Workspace } = await import('../src/components/Workspace');
+  const { dom, root } = await setup();
+  const base = q.items[0]!;
+  const originalText = '--- rfq.pdf ---\nrfq.pdf · page 1 · line 1\tRFQ 118\nrfq.pdf · page 1 · line 2\t6061-T651 plate 1/4 x 12 x 24 in qty 2\nrfq.pdf · page 2 · line 7\t6061 plate 1/4 x 12 x 24 qty TBD';
+  const two = buildQuote({ ...q, originalText, items: [
+    { ...base, id: 'line-1', source: 'rfq.pdf · page 1 · line 2' },
+    { ...base, id: 'line-2', original: '6061 plate 1/4 x 12 x 24 qty TBD', source: 'rfq.pdf · page 2 · line 7', spec: { ...base.spec, quantity: null }, conflicts: ['Same as item 1 [rfq.pdf · page 1 · line 2]. Confirm both are wanted.'] },
+  ] });
+  const selected: string[] = [];
+  await act(async () => root.render(createElement(Workspace, { quote: two, selected: 'line-2', onSelect: (id: string) => selected.push(id), busy: null, onChangeLine: async () => true, onNext: () => {}, onNew: () => {} })));
+  assert.deepEqual([...document.querySelectorAll('.row-source')].map(e => e.textContent), ['page 1 · line 2', 'page 2 · line 7']);
+  assert.match(document.querySelector('.line-source')!.textContent!, /From the RFQ · page 2 · line 7/);
+  assert.match(document.querySelector('.ask-ref')!.textContent!, /page 2 · line 7/);
+  const link = document.querySelector<HTMLButtonElement>('.ask button.issue-ref')!;
+  assert.equal(link.textContent, 'Item 1 · page 1 · line 2');
+  await act(async () => link.click()); assert.deepEqual(selected, ['line-1']);
+  await act(async () => [...document.querySelectorAll('button')].find(b => b.textContent === 'Show in RFQ')!.click());
+  const dialog = document.querySelector('[role="dialog"]')!;
+  assert.equal(dialog.querySelector('.hl .source-body')!.textContent, '6061 plate 1/4 x 12 x 24 qty TBD');
+  assert.deepEqual([...dialog.querySelectorAll('.source-item')].map(b => b.textContent), ['Item 1', 'Item 2 · 2 open']);
+  await act(async () => root.unmount()); dom.window.close();
+});

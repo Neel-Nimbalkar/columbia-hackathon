@@ -203,7 +203,7 @@ test('aggregate demand across repeated SKUs triggers insufficient stock', async 
   const text = `6061-T651 plate 1/4 x 12 x 24 in qty ${half}\nsecond: 6061-T651 plate 1/4 x 12 x 24 in qty ${half}`;
   const res = await processText(text, extraction([line(1), { ...line(2), original: `6061-T651 plate 1/4 x 12 x 24 in qty ${half}` }]));
   const q = quoteSchema.parse(await res.json());
-  assert.ok(q.items.every((i) => i.blockers.some((b) => /insufficient stock/.test(b) && /across lines 1, 2/.test(b))));
+  assert.ok(q.items.every((i) => i.blockers.some((b) => /insufficient stock/.test(b) && /across items 1, 2/.test(b))));
   assert.equal(q.ready, false);
 });
 

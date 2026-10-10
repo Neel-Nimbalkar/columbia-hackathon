@@ -19,6 +19,13 @@ export interface ProcessInput {
   targetMargin: number;
 }
 
+/**
+ * One source-text line: the segment reference and its text, tab separated. Segment
+ * text is whitespace-collapsed, so the tab is unambiguous; the review UI uses the
+ * reference to point each item and question at the exact line it came from.
+ */
+export const sourceLine = (g: { ref: string; text: string }) => `${g.ref}\t${g.text}`;
+
 export function newQuoteId(now = new Date()): string {
   return `RQ-${now.toISOString().slice(0, 10).replace(/-/g, '')}-${randomBytes(3).toString('hex').toUpperCase()}`;
 }
@@ -51,11 +58,13 @@ export function crossSourceConflicts(items: ExtractedItem[]): void {
     const diffs = (['grade', 'temper', 'quantity', 'finish', 'quantityUnit'] as const)
       .filter((f) => a.spec[f] !== null && b.spec[f] !== null && String(a.spec[f]).toUpperCase() !== String(b.spec[f]).toUpperCase())
       .map((f) => `${f}: ${docOf(a.source)} says ${a.spec[f]}, ${docOf(b.source)} says ${b.spec[f]}`);
-    const msg = diffs.length
-      ? `Conflicting requirements between sources for the same item (lines ${i + 1} and ${j + 1}) — ${diffs.join('; ')}. Which is correct?`
-      : `Lines ${i + 1} and ${j + 1} describe the same item in two sources (${docOf(a.source)} and ${docOf(b.source)}). Confirm whether both are wanted or exclude one.`;
-    a.conflicts.push(msg);
-    b.conflicts.push(msg);
+    const where = `item ${i + 1} [${a.source}] and item ${j + 1} [${b.source}]`;
+    const msg = (diffs.length
+      ? `Conflicting requirements between sources for the same material: ${where} — ${diffs.join('; ')}. Which is correct?`
+      : `The same material is requested in two sources: ${where}. Confirm whether both are wanted or exclude one.`).slice(0, 1000);
+    // Stay inside the quote contract (≤ 30 conflicts per line) so the quote can round-trip.
+    if (a.conflicts.length < 30) a.conflicts.push(msg);
+    if (b.conflicts.length < 30) b.conflicts.push(msg);
   }
 }
 
@@ -70,7 +79,11 @@ export async function processRfq(input: ProcessInput): Promise<Quote> {
     names.add(name);
     sources.push(await parseUpload({ ...f, name }, { sessionId: id }));
   }
-  if (input.text.trim()) sources.push(parsePastedText(input.text));
+  if (input.text.trim()) {
+    const pasted = parsePastedText(input.text);
+    if (pasted.segments.length) sources.push(pasted);
+    else if (!sources.length) throw new HttpError(422, 'EMPTY_DOCUMENT', 'The pasted text contains no readable characters.');
+  }
   if (!sources.length) throw new HttpError(400, 'BAD_REQUEST', 'Send an RFQ file, pasted text, or both.');
   const warnings: string[] = sources.flatMap((s) => s.notes);
 
@@ -99,7 +112,8 @@ export async function processRfq(input: ProcessInput): Promise<Quote> {
   }
   const items: ExtractedItem[] = kept.map(({ anchor, raw }, i) => {
     const { spec, provenance } = toSpec(raw);
-    return { id: `line-${i + 1}`, original: anchor.text.slice(0, 8000), source: anchor.ref, spec, provenance, conflicts: [], included: true, classification: null };
+    const source = anchor.ref.length > 200 ? `${anchor.ref.slice(0, 199)}…` : anchor.ref;
+    return { id: `line-${i + 1}`, original: anchor.text.slice(0, 8000), source, spec, provenance, conflicts: [], included: true, classification: null };
   });
   if (!items.length) {
     throw new HttpError(422, 'NO_LINE_ITEMS', 'No requested line items were found in the RFQ. Check that the document lists the materials to quote (a blank template has none).');
@@ -121,19 +135,20 @@ export async function processRfq(input: ProcessInput): Promise<Quote> {
     if (!jevModel) classificationProvider = 'TypeSafe Jev (unavailable for this request)';
   }
   if (injection instanceof Error) warnings.push(`Jev prompt-injection check unavailable: ${injection.message}`);
-  if (extraction.items.length > items.length) warnings.push(`${extraction.items.length - items.length} extracted line(s) were duplicated or could not be traced to the source and were omitted. Review the original request for completeness.`);
   if (!(injection instanceof Error) && injection.flagged) {
     warnings.push(`Possible prompt-injection text detected in the RFQ (Jev ${Math.round(injection.probability * 100)}%). It was treated as customer data only and cannot change pricing or approvals.`);
   }
-  if (extraction.customer && input.customer.trim() && extraction.customer.toLowerCase() !== input.customer.trim().toLowerCase()) {
-    warnings.push(`The document names the customer "${extraction.customer}"; the quote uses "${input.customer.trim()}".`);
+  // The document's customer becomes the signing company, so keep it to one line within the 200-character contract.
+  const documentCustomer = extraction.customer?.replace(/[\x00-\x1f\x7f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200) || null;
+  if (documentCustomer && input.customer.trim() && documentCustomer.toLowerCase() !== input.customer.trim().toLowerCase()) {
+    warnings.push(`The document names the customer "${documentCustomer}"; the quote uses "${input.customer.trim()}".`);
   }
 
-  const fullOriginal = sources.map((s) => `--- ${s.name} ---\n${s.segments.map((g) => g.text).join('\n')}`).join('\n\n');
+  const fullOriginal = sources.map((s) => `--- ${s.name} ---\n${s.segments.map(sourceLine).join('\n')}`).join('\n\n');
   const originalText = fullOriginal.length > MAX_TEXT_CHARS ? `${fullOriginal.slice(0, MAX_TEXT_CHARS - 40)}\n… [source text truncated for display]` : fullOriginal;
   return buildQuote({
     id,
-    customer: input.customer.trim() || extraction.customer || '',
+    customer: input.customer.trim() || documentCustomer || '',
     rfqReference: extraction.rfqReference?.slice(0, 200) ?? null,
     ...quoteDates(),
     originalText,

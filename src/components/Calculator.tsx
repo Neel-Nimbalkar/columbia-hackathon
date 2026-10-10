@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { DENSITIES, GAUGE_TABLES, MM_PER_IN, SHAPES, crossSection, nearestFraction, parseFraction, type Shape } from '@/lib/shared/metals';
-import { marginPriceCents } from '@/lib/shared/pricing';
+import { marginPriceCents, percentToMargin } from '@/lib/shared/pricing';
 import { money, pct } from '@/lib/client/format';
 import { PageHeader, Segmented } from './ui';
 
@@ -190,7 +190,7 @@ function Margin() {
   const valid = cost.trim() !== '' && input.trim() !== '' && Number.isFinite(c) && c > 0 && c <= 1e9 && Number.isFinite(x) && x >= 0 && (mode !== 'margin' || x < 100);
   let price: number | null = null;
   if (valid) {
-    try { price = mode === 'margin' ? marginPriceCents(Math.round(c * 100), x / 100) / 100 : mode === 'markup' ? Math.round(c * (1 + x / 100) * 100) / 100 : x; } catch { price = null; }
+    try { price = mode === 'margin' ? marginPriceCents(Math.round(c * 100), percentToMargin(x)) / 100 : mode === 'markup' ? Math.round(c * (1 + x / 100) * 100) / 100 : x; } catch { price = null; }
     if (price !== null && (!Number.isFinite(price) || !Number.isSafeInteger(Math.round(price * 100)))) price = null;
   }
   const margin = price ? (price - c) / price : null;
