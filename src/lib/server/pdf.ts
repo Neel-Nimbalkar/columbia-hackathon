@@ -2,7 +2,10 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import type { Quote } from '../shared/schema';
 export function exportBlockers(quote:Quote):string[]{const included=quote.items.filter(i=>i.included);if(!included.length)return ['Include at least one ready line.'];return included.flatMap(i=>[...i.blockers,...i.questions,...i.conflicts,...(i.status!=='Ready'?[`${i.id}: ${i.status}`]:[]),...(!i.matchedSku?[`${i.id}: no matched SKU`]:[]),...(!i.pricing?[`${i.id}: no validated price`]:[]),...(i.spec.quantity===null||i.spec.quantity<=0?[`${i.id}: invalid quantity`]:[]),...i.compliance.filter(c=>c.status==='pending'||c.status==='missing').map(c=>`${i.id}: ${c.requirement} ${c.status}`)]);}
 const money=(n:number)=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n);
-const ascii=(s:string)=>s.replace(/[–—−]/g,'-').replace(/×/g,'x').replace(/·/g,' | ').replace(/[^\x20-\x7E\n]/g,'');
+/** Keep everything Helvetica (WinAnsi) can encode, e.g. ± Ø ° ×; substitute the rest visibly instead of dropping it,
+ * so "±0.005" never prints as "0.005". */
+export const pdfText=(s:string)=>s.replace(/[–—−‐‑]/g,'-').replace(/×/g,'x').replace(/·/g,' | ').replace(/″/g,'"').replace(/′/g,"'").replace(/≤/g,'<=').replace(/≥/g,'>=').replace(/⌀/g,'Ø').replace(/[^\x20-\x7E\n\u00A0-\u00FF€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•˜™š›œžŸ]/g,'?');
+const ascii=pdfText;
 export async function generateQuotePdf(quote:Quote,demo=false):Promise<Uint8Array>{
  const blockers=exportBlockers(quote);if(blockers.length)throw new Error(blockers.join('; '));
  const doc=await PDFDocument.create();const regular=await doc.embedFont(StandardFonts.Helvetica);const bold=await doc.embedFont(StandardFonts.HelveticaBold);

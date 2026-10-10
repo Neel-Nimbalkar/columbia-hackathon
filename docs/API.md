@@ -38,11 +38,11 @@ This endpoint exists in the frontend/PDF PR. Production calls delegate to `valid
 {"error":{"code":"QUOTE_BLOCKED","message":"Resolve or exclude all blocked lines before export.","details":["line-1: no matched SKU"]}}
 ```
 
-Use 400 invalid input, 413 limits, 422 processing/readiness problems, 429 upstream rate limiting if appropriate, 502 provider failures, 503 missing backend/provider configuration. No secrets or raw upstream credentials in error messages. The UI shows actionable `error.message`; it never replaces failed real requests with fixtures. Responses that fail `quoteSchema` are rejected visibly.
+Use 400 invalid input, 413 limits, 422 processing/readiness problems, 429 upstream rate limiting if appropriate, 502 provider failures, 503 missing backend/provider configuration. No secrets or raw upstream credentials in error messages. The client raises `ApiRequestError` carrying `code`, `status` and `details` (a 404/405 without an envelope becomes `BACKEND_NOT_CONNECTED`). The UI shows actionable `error.message`; it never replaces failed real requests with fixtures. Responses that fail `quoteSchema` are rejected visibly.
 
 ## Quote semantics
 - `spec`: customer values in stated units, nullable unknowns.
-- `normalized`: equivalent measurements/material designations with explicit normalized units.
+- `normalized`: equivalent measurements/material designations with explicit normalized units. `normalized.dimensionUnit` is required whenever any dimension is present (enforced by `quoteSchema`); a unit-less customer value stays in `spec` and becomes a question.
 - `provenance`: customer/normalized/suggestion per field. Suggestions do not establish requested requirements.
 - `status`: Ready, Matched, Needs Clarification, Compliance Pending, No Match.
 - `included`: explicit line inclusion; excluded requests remain visible in preview and PDF.
