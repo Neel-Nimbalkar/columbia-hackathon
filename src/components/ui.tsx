@@ -2,18 +2,18 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AlertTriangle, Check, CheckCircle2, CircleDashed, CircleHelp, Copy, Info, X, XCircle } from 'lucide-react';
 
-type Tone = 'green' | 'amber' | 'red' | 'blue' | 'neutral';
+type Tone = 'green' | 'amber' | 'red' | 'blue' | 'accent' | 'neutral';
 
 const STATUS_TONE: Record<string, Tone> = {
   Ready: 'green', verified: 'green', won: 'green',
   Matched: 'blue', sent: 'blue', pending: 'amber',
-  'Needs Clarification': 'amber', 'Compliance Pending': 'amber', expired: 'amber',
+  'Needs Clarification': 'accent', 'Compliance Pending': 'amber', expired: 'amber',
   'No Match': 'red', missing: 'red', lost: 'red',
   not_requested: 'neutral', draft: 'neutral', Excluded: 'neutral',
 };
 
 const STATUS_ICON: Record<Tone, ReactNode> = {
-  green: <CheckCircle2 size={12} />, blue: <Check size={12} />, amber: <CircleHelp size={12} />, red: <XCircle size={12} />, neutral: <CircleDashed size={12} />,
+  green: <CheckCircle2 size={12} />, blue: <Check size={12} />, amber: <CircleHelp size={12} />, accent: <CircleHelp size={12} />, red: <XCircle size={12} />, neutral: <CircleDashed size={12} />,
 };
 
 const LABELS: Record<string, string> = { not_requested: 'Not requested', draft: 'Draft', sent: 'Sent', won: 'Won', lost: 'Lost', expired: 'Expired', verified: 'Verified', pending: 'Pending', missing: 'Missing' };

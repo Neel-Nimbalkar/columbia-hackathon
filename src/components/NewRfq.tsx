@@ -146,7 +146,7 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
             {SAMPLES.map((s) => (
               <div key={s.id} className="sample-card">
                 <div className="sample-top">
-                  <span className="sample-kind">{s.kind === 'file' ? fileIcon(s.file!.name) : <Mail size={15} />}{s.kind === 'file' ? s.file!.name.split('.').pop()!.toUpperCase() : 'EMAIL'}</span>
+                  <span className="sample-kind">{s.kind === 'file' ? fileIcon(s.file!.name) : <Mail size={15} />}{s.format}</span>
                   {s.file && <a className="icon-button" href={s.file.path} download aria-label={`Download ${s.file.name}`} title="Download the file"><Download size={14} /></a>}
                 </div>
                 <h3>{s.title}</h3>
