@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: rudco-rfq-preview
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    autoDeploy: true
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NICRRON_API_KEY
+        sync: false
+      - key: NICRRON_MODEL
+        value: anthropic/claude-fable-5-1
+      - key: NICRRON_BASE_URL
+        value: https://api.nicrron.ai/v1
+      - key: TYPESAFE_API_KEY
+        sync: false
+      - key: TYPESAFE_MODEL
+        value: jev-latest
+      - key: PRISMTRACE_API_KEY
+        sync: false
+      - key: PRISMTRACE_PROJECT_ID
+        sync: false
+      - key: PRISMTRACE_HOST
+        value: https://prism-api-prod.up.railway.app

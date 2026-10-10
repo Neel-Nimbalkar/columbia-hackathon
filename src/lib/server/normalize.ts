@@ -1,0 +1,194 @@
+/**
+ * Deterministic normalization. The model extracts values verbatim; this
+ * module (not the model) turns "304 SS", "1-1/2\"", "16ga", "12 ft" into
+ * comparable values. Unknowns stay null — nothing is guessed.
+ */
+import type { Spec } from '../shared/schema';
+
+/* ------------------------------------------------------------------ */
+/* Numbers and units                                                    */
+/* ------------------------------------------------------------------ */
+
+/** Parse "0.060", ".060", "1/8", "1-1/2", "1 1/2", "3/16\"" → number; null if not a positive number. */
+export function parseMeasure(raw: string | number | null | undefined): number | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === 'number') return Number.isFinite(raw) && raw > 0 ? raw : null;
+  const s = raw.trim().replace(/["”″']|in(ch(es)?)?\.?$|mm$|ft$|feet$/gi, '').trim();
+  let m = /^(\d+)\s*[- ]\s*(\d+)\s*\/\s*(\d+)$/.exec(s);
+  if (m) return Number(m[1]) + Number(m[2]) / Number(m[3]);
+  m = /^(\d+)\s*\/\s*(\d+)$/.exec(s);
+  if (m) return Number(m[2]) === 0 ? null : Number(m[1]) / Number(m[2]);
+  const n = Number(s.replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export type LengthUnit = 'in' | 'mm' | 'ft';
+
+export function normalizeUnit(raw: string | null | undefined): LengthUnit | null {
+  if (!raw) return null;
+  const u = raw.trim().toLowerCase().replace(/\.$/, '');
+  if (['in', 'inch', 'inches', '"', '″', 'in.'].includes(u)) return 'in';
+  if (['mm', 'millimeter', 'millimeters', 'millimetre', 'millimetres'].includes(u)) return 'mm';
+  if (['ft', 'foot', 'feet', "'", '′'].includes(u)) return 'ft';
+  return null;
+}
+
+export function toInches(value: number, unit: LengthUnit): number {
+  return unit === 'in' ? value : unit === 'mm' ? value / 25.4 : value * 12;
+}
+
+/** Round to 4 decimals to avoid 0.1+0.2 artifacts in comparisons and display. */
+export const r4 = (n: number) => Math.round(n * 10_000) / 10_000;
+
+/* ------------------------------------------------------------------ */
+/* Materials, grades, forms, finishes                                   */
+/* ------------------------------------------------------------------ */
+
+export type Material = 'stainless steel' | 'aluminum' | 'carbon steel' | 'alloy steel';
+
+const MATERIAL_SYNONYMS: [RegExp, Material][] = [
+  [/^(ss|s\/s|sst|stainless|stainless steel|inox|corrosion resistant steel|cres)$/, 'stainless steel'],
+  [/^(al|alu|alum|aluminum|aluminium|aluminum alloy)$/, 'aluminum'],
+  [/^(cs|crs|hrs|cold rolled steel|hot rolled steel|mild steel|carbon steel|low carbon steel|steel|ms)$/, 'carbon steel'],
+  [/^(alloy steel|chromoly|chrome moly|cromoly)$/, 'alloy steel'],
+];
+
+const GRADE_MATERIAL: [RegExp, Material][] = [
+  [/^(201|301|302|303|304|304L|304H|309|310|316|316L|317L|321|347|410|416|420|430|440C|17-4 PH|15-5 PH|2205|904L)$/, 'stainless steel'],
+  [/^(1100|2011|2024|3003|5005|5052|5083|5086|6061|6063|6082|7050|7075)$/, 'aluminum'],
+  [/^(A36|A572|1008|1010|1018|1020|1026|1045|1117|1144|12L14|A500|A513|A1011)$/, 'carbon steel'],
+  [/^(4130|4140|4340|8620|52100)$/, 'alloy steel'],
+];
+
+export function normalizeMaterial(raw: string | null | undefined): Material | null {
+  if (!raw) return null;
+  const s = raw.trim().toLowerCase().replace(/\s+/g, ' ');
+  for (const [re, m] of MATERIAL_SYNONYMS) if (re.test(s)) return m;
+  return null;
+}
+
+/**
+ * "SS304" → 304, "type 316l" → 316L, "6061-T6" → {6061, T6}, "17-4PH" → "17-4 PH",
+ * "ASTM A36" → A36. Returns the temper if it was embedded in the grade.
+ */
+export function normalizeGrade(raw: string | null | undefined): { grade: string | null; temper: string | null } {
+  if (!raw) return { grade: null, temper: null };
+  let s = raw.trim().toUpperCase()
+    .replace(/^(TYPE|GRADE|GR\.?|AISI|SAE|ASTM|UNS|ALLOY)\s*/g, '')
+    .replace(/\b(SS|S\/S|SST|STAINLESS|ALUM(INUM)?|AL)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  s = s.replace(/^SS\s*/, '').replace(/\s*SS$/, '');
+  const ph = /^(17|15)\s*-?\s*(4|5)\s*-?\s*PH$/.exec(s);
+  if (ph) return { grade: `${ph[1]}-${ph[2]} PH`, temper: null };
+  const withTemper = /^(\d{4})\s*[- ]?\s*(T\d{1,5}|O|H\d{2,3}|F)$/.exec(s);
+  if (withTemper) return { grade: withTemper[1]!, temper: withTemper[2]! };
+  return { grade: s || null, temper: null };
+}
+
+export function materialForGrade(grade: string | null): Material | null {
+  if (!grade) return null;
+  for (const [re, m] of GRADE_MATERIAL) if (re.test(grade)) return m;
+  return null;
+}
+
+export function normalizeTemper(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = raw.trim().toUpperCase().replace(/\s+/g, '');
+  return /^(T\d{1,5}|O|H\d{2,3}|F|ANNEALED|COND(ITION)?A|H\d{3,4}|H1150|H1025|H900)$/.test(s) ? s.replace(/^CONDITIONA$|^CONDA$/, 'CONDITION A') : raw.trim();
+}
+
+export function normalizeForm(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = raw.trim().toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/^(sht|sheet|sheets|shts)$/.test(s)) return 'sheet';
+  if (/^(pl|plt|plate|plates)$/.test(s)) return 'plate';
+  if (/^(rd|rnd|round|rod|round bar|rd bar|rnd bar|round rod|bar round)$/.test(s)) return 'round bar';
+  if (/^(flat|flat bar|flats|fb|flat stock)$/.test(s)) return 'flat bar';
+  if (/^(sq|square|square bar|sq bar)$/.test(s)) return 'square bar';
+  if (/^(hex|hex bar)$/.test(s)) return 'hex bar';
+  if (/^(tube|tubing|round tube|rd tube|tubes)$/.test(s)) return 'tube';
+  if (/^(square tube|sq tube|rectangular tube|rect tube)$/.test(s)) return 'square tube';
+  if (/^(pipe|pipes)$/.test(s)) return 'pipe';
+  if (/^(angle|angles|ang)$/.test(s)) return 'angle';
+  if (/^(bar)$/.test(s)) return 'bar';
+  return s || null;
+}
+
+export function normalizeFinish(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = raw.trim().toLowerCase();
+  if (/^(#|no\.?\s*)?2b\b/.test(s)) return '2B';
+  if (/^(#|no\.?\s*)2\b/.test(s)) return '#2';
+  if (/^(#|no\.?\s*)4\b|brushed|satin/.test(s)) return '#4';
+  if (/^(#|no\.?\s*)8\b|mirror/.test(s)) return '#8';
+  if (/^ba\b|bright anneal/.test(s)) return 'BA';
+  if (/^mill\b/.test(s)) return 'mill';
+  if (/^(hr|hot rolled)\b/.test(s)) return 'hot rolled';
+  if (/^(cr|cold rolled|cold finish|cold drawn|cd)\b/.test(s)) return 'cold finished';
+  if (/^(hrpo|pickled)/.test(s)) return 'HRPO';
+  return raw.trim();
+}
+
+/* ------------------------------------------------------------------ */
+/* Gauge                                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Gauge → nominal thickness (in). Gauge is material dependent:
+ * - Carbon steel: Manufacturers' Standard Gauge for sheet steel.
+ * - Stainless steel: common stainless sheet gauge (nominal decimals).
+ * - Aluminum: Brown & Sharpe (AWG).
+ */
+export const GAUGE_TABLES: Record<'carbon steel' | 'stainless steel' | 'aluminum', { name: string; table: Record<number, number> }> = {
+  'carbon steel': {
+    name: "Manufacturers' Standard Gauge (sheet steel)",
+    table: { 7: 0.1793, 8: 0.1644, 10: 0.1345, 11: 0.1196, 12: 0.1046, 13: 0.0897, 14: 0.0747, 16: 0.0598, 18: 0.0478, 20: 0.0359, 22: 0.0299, 24: 0.0239, 26: 0.0179, 28: 0.0149 },
+  },
+  'stainless steel': {
+    name: 'Stainless sheet gauge (nominal mill decimals)',
+    table: { 7: 0.18, 8: 0.165, 10: 0.135, 11: 0.12, 12: 0.105, 14: 0.075, 16: 0.06, 18: 0.048, 20: 0.036, 22: 0.03, 24: 0.024, 26: 0.018, 28: 0.015 },
+  },
+  aluminum: {
+    name: 'Brown & Sharpe (AWG) aluminum gauge',
+    table: { 8: 0.1285, 10: 0.1019, 11: 0.0907, 12: 0.0808, 14: 0.0641, 16: 0.0508, 18: 0.0403, 20: 0.032, 22: 0.0253, 24: 0.0201, 26: 0.0159 },
+  },
+};
+
+export function gaugeToInches(gauge: number, material: string | null): { inches: number; table: string } | null {
+  const entry = material === 'alloy steel' ? GAUGE_TABLES['carbon steel'] : GAUGE_TABLES[material as keyof typeof GAUGE_TABLES];
+  const inches = entry?.table[gauge];
+  return entry && inches ? { inches, table: entry.name } : null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Quantity                                                             */
+/* ------------------------------------------------------------------ */
+
+export type QtyUnit = 'pc' | 'ft' | 'lb' | 'kg' | 'in' | 'm';
+
+export function normalizeQtyUnit(raw: string | null | undefined): QtyUnit | null {
+  if (!raw) return null;
+  const s = raw.trim().toLowerCase().replace(/[().]/g, '');
+  if (/^(pc|pcs|piece|pieces|ea|each|sheet|sheets|sht|shts|plate|plates|bar|bars|length|lengths|lgth|lgths|units?|qty|nos?|blank|blanks|tube|tubes|stick|sticks)$/.test(s)) return 'pc';
+  if (/^(ft|feet|foot|lf|lin ft|linear feet)$/.test(s)) return 'ft';
+  if (/^(lb|lbs|pound|pounds|#)$/.test(s)) return 'lb';
+  if (/^(kg|kgs|kilo|kilos|kilogram|kilograms)$/.test(s)) return 'kg';
+  if (/^(in|inch|inches)$/.test(s)) return 'in';
+  if (/^(m|meter|meters|metre|metres)$/.test(s)) return 'm';
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Spec comparison helpers                                               */
+/* ------------------------------------------------------------------ */
+
+/** Dimensions in inches (null if unit unknown). */
+export function specDimsInches(spec: Spec): { thickness: number | null; width: number | null; length: number | null; diameter: number | null; tolerance: number | null } | null {
+  const u = spec.dimensionUnit;
+  const anyDim = [spec.thickness, spec.width, spec.length, spec.diameter, spec.tolerance].some((v) => v !== null);
+  if (!anyDim) return { thickness: null, width: null, length: null, diameter: null, tolerance: null };
+  if (!u) return null;
+  const c = (v: number | null) => (v === null ? null : r4(toInches(v, u)));
+  return { thickness: c(spec.thickness), width: c(spec.width), length: c(spec.length), diameter: c(spec.diameter), tolerance: c(spec.tolerance) };
+}

@@ -25,7 +25,7 @@ export async function generateQuotePdf(quote:Quote,demo=false):Promise<Uint8Arra
   const rows=[...wrapped(description,275,10,true),...wrapped(`SKU ${item.matchedSku}`,275,9),...wrapped(`${dimensions} | ${s.finish??'Finish not specified'}`,275,9)];
   const h=rows.length*15+17;if(y-h<66){page=doc.addPage([595.28,841.89]);header();tableHeader();}
   rows.forEach((row,i)=>write(row,52,y-i*15,i===0?10:9,i===0));write(String(s.quantity),345,y,10);write(money(item.pricing!.unitPrice),392,y,10);write(money(item.pricing!.lineTotal),477,y,10);y-=h;page.drawLine({start:{x:44,y:y+7},end:{x:551,y:y+7},color:line,thickness:.5});
-  for(const c of item.compliance)paragraph(`${c.requirement}: ${c.status}. ${c.evidence}`,8,muted);
+  for(const c of item.compliance.filter(c=>c.status!=='not_requested'))paragraph(`${c.requirement}: ${c.status}. ${c.evidence}`,8,muted);
   paragraph(`Price per ${item.pricing!.unit}. Lead time: ${item.leadTime??'To be confirmed'}.`,8,muted);
   if(s.standards.length)paragraph(`Requested standards: ${s.standards.join(', ')}`,8,muted);
  }

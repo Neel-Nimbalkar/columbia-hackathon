@@ -3,7 +3,9 @@ const text = z.string().max(1000).nullable();
 const dim = z.number().positive().max(100000).nullable();
 export const specSchema = z.object({material:text,grade:text,form:text,thickness:dim,width:dim,length:dim,diameter:dim,dimensionUnit:z.enum(['in','mm','ft']).nullable(),gauge:z.number().int().min(1).max(40).nullable(),quantity:dim,quantityUnit:text,temper:text,finish:text,standards:z.array(z.string().max(100)).max(20),certifications:z.array(z.string().max(100)).max(20),mtr:z.boolean().nullable(),countryOfOrigin:text,tolerance:dim});
 export type Spec = z.infer<typeof specSchema>;
-export const extractedItemSchema = z.object({id:z.string().max(100),original:z.string().max(8000),source:z.string().max(200),spec:specSchema,conflicts:z.array(z.string().max(1000)).max(30),provenance:z.record(z.string(),z.enum(['customer','normalized','suggestion'])),included:z.boolean().default(true)});
+export const extractedItemSchema = z.object({id:z.string().max(100),original:z.string().max(8000),source:z.string().max(200),spec:specSchema,conflicts:z.array(z.string().max(1000)).max(30),provenance:z.record(z.string(),z.enum(['customer','normalized','suggestion'])),included:z.boolean().default(true),
+/** TypeSafe Jev typed classification of the line, when available. */
+classification:z.object({material:z.string().nullable(),form:z.string().nullable(),risk:z.string(),confidence:z.number().min(0).max(1),model:z.string()}).nullable().optional()});
 export type ExtractedItem = z.infer<typeof extractedItemSchema>;
 export type Compliance = {requirement:string;status:'verified'|'pending'|'missing'|'not_requested';evidence:string};
 export type Product = {sku:string;supplierId:string;description:string;spec:Spec;stock:number;cost:number;unit:string;leadTime:string;sourceUrl:string;sourceDate:string;mtrAvailable:boolean;standards:string[];certifications:string[];origin:string|null;benchmark:{price:number;unit:string;date:string;source:string;synthetic:true}|null};
