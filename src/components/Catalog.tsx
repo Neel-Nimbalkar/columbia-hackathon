@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Boxes, ExternalLink, Loader2, Plus, Search } from 'lucide-react';
 import { fetchCatalog, type CatalogItem } from '@/lib/client/api';
-import { marginPriceCents } from '@/lib/shared/pricing';
+import { marginPriceCents, percentToMargin } from '@/lib/shared/pricing';
 import { money, pct, titleCase } from '@/lib/client/format';
 import { Empty, Message, Modal, PageHeader } from './ui';
 
@@ -41,7 +41,7 @@ export function Catalog({ onAddToRfq, draftLines, onGoToDraft }: { onAddToRfq: (
   useEffect(load, []);
 
   const marginValid = margin.trim() !== '' && Number.isFinite(Number(margin)) && Number(margin) >= 0 && Number(margin) <= 80;
-  const m = marginValid ? Number(margin) / 100 : .2;
+  const m = marginValid ? percentToMargin(Number(margin)) : .2;
   const rows = useMemo(() => {
     if (!data) return [];
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -59,7 +59,7 @@ export function Catalog({ onAddToRfq, draftLines, onGoToDraft }: { onAddToRfq: (
         case 'price': return price;
         case 'lead': return p.leadTimeDays;
         case 'headroom': return p.listPrice?.unit === 'pc' ? p.listPrice.usd - price : -Infinity;
-        default: return `${catalogName(p)} ${String(p.thickness ?? p.diameter ?? 0).padStart(8, '0')} ${String(p.length ?? 0).padStart(4, '0')}`;
+        default: return `${catalogName(p)} ${(p.thickness ?? p.diameter ?? 0).toFixed(4).padStart(12, '0')} ${(p.length ?? 0).toFixed(4).padStart(12, '0')}`;
       }
     };
     return [...list].sort((a, b) => { const x = val(a), y = val(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir; });

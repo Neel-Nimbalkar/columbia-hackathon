@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Download, Inbox, Loader2 } from 'lucide-react';
 import { ACCEPTANCE_STATEMENT, QUOTE_TERMS, signatureSchema, type Signature } from '@/lib/shared/acceptance';
 import type { Quote } from '@/lib/shared/schema';
-import { bareQuestion, isBlocked, itemSize, itemTitle, money } from '@/lib/client/format';
-import { Badge, Empty, PageHeader } from './ui';
+import { isBlocked, itemSize, itemTitle, money, sourceDocs, sourceLabel } from '@/lib/client/format';
+import { customerNotes } from '@/lib/shared/notes';
+import { Badge, Empty, IssueText, PageHeader } from './ui';
 
 export function FinalQuote({ quote, busy, onEdit, onExport, onSign, signed, onDownloadSigned, onBack, onNew }: {
   quote: Quote | null;
@@ -82,7 +83,7 @@ export function FinalQuote({ quote, busy, onEdit, onExport, onSign, signed, onDo
             <div className="paper-section"><h3>Not quoted</h3>{excluded.map((i) => <p key={i.id}>{i.original.replace(/\s*\|\s*/g, ' ')}</p>)}</div>
           )}
           <div className="paper-section"><h3>Terms</h3><p>{QUOTE_TERMS}</p></div>
-          {quote.warnings.length > 0 && <div className="paper-section"><h3>Review notes</h3>{quote.warnings.map((w, i) => <p key={i}>{w}</p>)}</div>}
+          {customerNotes(quote.warnings).length > 0 && <div className="paper-section"><h3>Review notes</h3>{customerNotes(quote.warnings).map((w, i) => <p key={i}>{w}</p>)}</div>}
           <p className="paper-disclosure">{quote.disclosure}</p>
         </article>
 
@@ -127,7 +128,7 @@ export function FinalQuote({ quote, busy, onEdit, onExport, onSign, signed, onDo
               {blocked.map((i) => (
                 <button key={i.id} className="issue-row" disabled={!!busy} onClick={() => onBack(i.id)}>
                   <Badge status={i.status} />
-                  <span>{bareQuestion([...i.conflicts, ...i.questions, ...i.blockers][0] ?? 'Needs review.')}</span>
+                  <span><small className="issue-where">Item {quote.items.indexOf(i) + 1} · {sourceLabel(i.source, sourceDocs(quote.originalText))}</small><IssueText text={[...i.conflicts, ...i.questions, ...i.blockers][0] ?? 'Needs review.'} items={quote.items} docs={sourceDocs(quote.originalText)} /></span>
                   <ArrowRight size={13} />
                 </button>
               ))}

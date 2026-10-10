@@ -2,11 +2,12 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import type { Quote } from '../shared/schema';
 import type { QuoteAcceptance } from '../shared/acceptance';
 import { QUOTE_TERMS, signingSnapshot } from '../shared/acceptance';
+import { customerNotes } from '../shared/notes';
 export function exportBlockers(quote:Quote):string[]{const included=quote.items.filter(i=>i.included);if(!included.length)return ['Include at least one ready line.'];return included.flatMap(i=>[...i.blockers,...i.questions,...i.conflicts,...(i.status!=='Ready'?[`${i.id}: ${i.status}`]:[]),...(!i.matchedSku?[`${i.id}: no matched SKU`]:[]),...(!i.pricing?[`${i.id}: no validated price`]:[]),...(i.spec.quantity===null||i.spec.quantity<=0?[`${i.id}: invalid quantity`]:[]),...i.compliance.filter(c=>c.status==='pending'||c.status==='missing').map(c=>`${i.id}: ${c.requirement} ${c.status}`)]);}
 const money=(n:number)=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n);
 /** Keep everything Helvetica (WinAnsi) can encode, e.g. ± Ø ° ×; substitute the rest visibly instead of dropping it,
  * so "±0.005" never prints as "0.005". */
-export const pdfText=(s:string)=>s.replace(/[–—−‐‑]/g,'-').replace(/×/g,'x').replace(/·/g,' | ').replace(/″/g,'"').replace(/′/g,"'").replace(/≤/g,'<=').replace(/≥/g,'>=').replace(/⌀/g,'Ø').replace(/[^\x20-\x7E\n\u00A0-\u00FF€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•˜™š›œžŸ]/g,'?');
+export const pdfText=(s:string)=>s.replace(/\r\n?/g,'\n').replace(/\t/g,' ').replace(/[–—−‐‑]/g,'-').replace(/×/g,'x').replace(/·/g,' | ').replace(/″/g,'"').replace(/′/g,"'").replace(/≤/g,'<=').replace(/≥/g,'>=').replace(/⌀/g,'Ø').replace(/[^\x20-\x7E\n\u00A0-\u00FF€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•˜™š›œžŸ]/g,'?');
 const ascii=pdfText;
 export async function generateQuotePdf(quote:Quote,acceptance?:QuoteAcceptance):Promise<Uint8Array>{
  const blockers=exportBlockers(quote);if(blockers.length)throw new Error(blockers.join('; '));
@@ -35,7 +36,7 @@ export async function generateQuotePdf(quote:Quote,acceptance?:QuoteAcceptance):
  ensure(58);y-=10;write('TOTAL (USD)',355,y,10,true);write(money(quote.total),466,y,17,true);y-=37;
  paragraph('Terms & assumptions',11,ink,true);paragraph(QUOTE_TERMS,9,muted);
  const excluded=quote.items.filter(i=>!i.included);if(excluded.length){paragraph('Excluded requests',10,ink,true);for(const i of excluded)paragraph(`${i.id}: ${i.original}`,9,muted);}
- if(quote.warnings.length){paragraph('Review notes',10,ink,true);for(const warning of quote.warnings)paragraph(warning,8,muted);}
+ const notes=customerNotes(quote.warnings);if(notes.length){paragraph('Review notes',10,ink,true);for(const warning of notes)paragraph(warning,8,muted);}
  paragraph(quote.disclosure,8,muted);
  if(acceptance){
   ensure(190);

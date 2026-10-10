@@ -1,5 +1,7 @@
 'use client';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import type { QuoteItem } from '@/lib/shared/schema';
+import { bareQuestion, issueParts, sourceLabel } from '@/lib/client/format';
 import { AlertTriangle, Check, CheckCircle2, CircleDashed, CircleHelp, Copy, Info, X, XCircle } from 'lucide-react';
 
 type Tone = 'green' | 'amber' | 'red' | 'blue' | 'accent' | 'neutral';
@@ -22,6 +24,21 @@ const LABELS: Record<string, string> = { not_requested: 'Not requested', draft: 
 export function Badge({ status }: { status: string }) {
   const tone = STATUS_TONE[status] ?? 'neutral';
   return <span className={`badge ${tone}`}>{STATUS_ICON[tone]}{LABELS[status] ?? status}</span>;
+}
+
+/**
+ * A question or blocker with its references to other items ("item 2 [rfq.pdf · row 4]")
+ * shown as "Item 2 · row 4"; with `onSelect` they link to that item.
+ */
+export function IssueText({ text, items, docs, currentId, onSelect }: { text: string; items: QuoteItem[]; docs: string[]; currentId?: string; onSelect?: (id: string) => void }) {
+  return <>{issueParts(bareQuestion(text)).map((part, i) => {
+    if ('text' in part) return <Fragment key={i}>{part.text}</Fragment>;
+    const target = items[part.item - 1];
+    const label = `Item ${part.item} · ${sourceLabel(part.source, docs)}`;
+    return target && onSelect && target.id !== currentId
+      ? <button key={i} type="button" className="issue-ref link" title={part.source} onClick={() => onSelect(target.id)}>{label}</button>
+      : <span key={i} className="issue-ref" title={part.source}>{label}</span>;
+  })}</>;
 }
 
 export function Message({ tone, children, onClose }: { tone: 'error' | 'info' | 'warning'; children: ReactNode; onClose?: () => void }) {

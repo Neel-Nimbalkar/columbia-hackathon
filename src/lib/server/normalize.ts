@@ -4,7 +4,7 @@
  * comparable values. Unknowns stay null — nothing is guessed.
  */
 import type { Spec } from '../shared/schema';
-import { GAUGE_TABLES } from '../shared/metals';
+import { GAUGE_TABLES, TUBE_WALL_GAUGE } from '../shared/metals';
 
 /* ------------------------------------------------------------------ */
 /* Numbers and units                                                    */
@@ -136,7 +136,7 @@ export function normalizeFinish(raw: string | null | undefined): string | null {
   if (/^ba\b|bright anneal/.test(s)) return 'BA';
   if (/^mill\b/.test(s)) return 'mill';
   if (/^(hr|hot rolled)\b/.test(s)) return 'hot rolled';
-  if (/^(cr|cold rolled|cold finish|cold drawn|cd)\b/.test(s)) return 'cold finished';
+  if (/^(cr|cf|cold rolled|cold finish|cold drawn|cd)\b/.test(s)) return 'cold finished';
   if (/^(hrpo|pickled)/.test(s)) return 'HRPO';
   return raw.trim();
 }
@@ -147,8 +147,10 @@ export function normalizeFinish(raw: string | null | undefined): string | null {
 
 export { GAUGE_TABLES };
 
-export function gaugeToInches(gauge: number, material: string | null): { inches: number; table: string } | null {
-  const entry = material === 'alloy steel' ? GAUGE_TABLES['carbon steel'] : GAUGE_TABLES[material as keyof typeof GAUGE_TABLES];
+export function gaugeToInches(gauge: number, material: string | null, form: string | null = null): { inches: number; table: string } | null {
+  // Tube walls use one wire-gauge scale regardless of material; sheet gauges depend on the material.
+  const entry = form === 'tube' ? (material ? TUBE_WALL_GAUGE : undefined)
+    : material === 'alloy steel' ? GAUGE_TABLES['carbon steel'] : GAUGE_TABLES[material as keyof typeof GAUGE_TABLES];
   const inches = entry?.table[gauge];
   return entry && inches ? { inches, table: entry.name } : null;
 }

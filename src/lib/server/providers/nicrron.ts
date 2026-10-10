@@ -10,6 +10,13 @@ export interface ChatJsonResult<T> {
   model: string;
 }
 
+/** The provider may report the configured model without its vendor prefix or with a dated snapshot suffix. */
+export function sameModel(reported: string, configured: string): boolean {
+  const base = configured.split('/').pop()!;
+  const got = reported.split('/').pop()!;
+  return reported === configured || got === base || new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[-@]\\d{6,8}$`).test(got);
+}
+
 /** Pull the first JSON object out of a model reply (tolerates code fences). */
 export function parseJsonObject(text: string): unknown {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
@@ -32,10 +39,10 @@ export async function chatJson<T>(
   const started = Date.now();
   try {
     const result = await chatJsonInner(schema, messages, opts);
-    await emitTrace({ model: result.model, input: messages, output: JSON.stringify(result.data), latencyMs: Date.now() - started, sessionId: opts.sessionId });
+    void emitTrace({ model: result.model, input: messages, output: JSON.stringify(result.data), latencyMs: Date.now() - started, sessionId: opts.sessionId });
     return result;
   } catch (err) {
-    await emitTrace({ model: config().nicrron.model, input: messages, output: `ERROR ${(err as { code?: string }).code ?? ''}: ${(err as Error).message}`, latencyMs: Date.now() - started, sessionId: opts.sessionId });
+    void emitTrace({ model: config().nicrron.model, input: messages, output: `ERROR ${(err as { code?: string }).code ?? ''}: ${(err as Error).message}`, latencyMs: Date.now() - started, sessionId: opts.sessionId });
     throw err;
   }
 }
@@ -82,10 +89,10 @@ export async function chatVisionText(
     const text = payload?.choices?.[0]?.message?.content ?? '';
     if (!text.trim()) throw new HttpError(502, 'UPSTREAM_INVALID_OUTPUT', `The vision model returned no text for ${image.label}.`);
     const result = { data: text, model: payload?.model ?? model };
-    await emitTrace({ model: result.model, input: traceInput, output: text, latencyMs: Date.now() - started, sessionId: opts.sessionId });
+    void emitTrace({ model: result.model, input: traceInput, output: text, latencyMs: Date.now() - started, sessionId: opts.sessionId });
     return result;
   } catch (err) {
-    await emitTrace({ model, input: traceInput, output: `ERROR ${(err as { code?: string }).code ?? ''}: ${(err as Error).message}`, latencyMs: Date.now() - started, sessionId: opts.sessionId });
+    void emitTrace({ model, input: traceInput, output: `ERROR ${(err as { code?: string }).code ?? ''}: ${(err as Error).message}`, latencyMs: Date.now() - started, sessionId: opts.sessionId });
     throw err;
   }
 }
@@ -119,7 +126,7 @@ async function chatJsonInner<T>(
       | null;
     if (payload?.choices?.[0]?.finish_reason === 'length') throw new HttpError(502, 'UPSTREAM_TRUNCATED', 'The model reply hit its output limit.');
     const content = payload?.choices?.[0]?.message?.content ?? '';
-    if (payload?.model && payload.model !== model && !payload.model.endsWith(model.split('/').pop()!)) {
+    if (payload?.model && !sameModel(payload.model, model)) {
       throw new HttpError(502, 'UPSTREAM_MODEL_MISMATCH', `Nicrron answered with ${payload.model} instead of the configured ${model}.`);
     }
     try {

@@ -36,7 +36,8 @@ export async function POST(request: Request): Promise<Response> {
       item = { ...item, ...applyAnswer(item, answer) };
       if (!extractionProvider.includes(model)) extractionProvider = `${extractionProvider}; clarification: ${model}`;
     }
-    const warnings = [...quote.warnings.filter((w) => !/^Line \d+: target margin/.test(w))];
+    // Document notes already survive recomputation; only warnings raised by this update are added.
+    const warnings: string[] = [];
     if (corrections || response?.trim()) {
       // Reclassify the buyer-confirmed spec, rather than retaining an obsolete
       // classification of the original line after a material/grade correction.
@@ -55,7 +56,7 @@ export async function POST(request: Request): Promise<Response> {
       targetMargin: targetMargin ?? current.targetMargin,
       provider: { ...current.provider, extraction: extractionProvider },
     });
-    return Response.json({ ...next, warnings: [...new Set([...warnings, ...next.warnings])] }, { headers: { 'Cache-Control': 'no-store' } });
+    return Response.json({ ...next, warnings: [...new Set([...next.warnings, ...warnings])] }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return toErrorResponse(error, 'api/rfq/clarify');
   }

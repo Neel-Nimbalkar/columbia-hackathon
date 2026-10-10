@@ -27,6 +27,21 @@ const DIM_TOL = 0.0015; // inches; absorbs 0.060 vs 0.0598-style rounding, not r
 const BENCHMARK_STALE_DAYS = 120;
 const SIZED_FORMS = new Set(['sheet', 'plate', 'round bar', 'flat bar', 'square bar', 'hex bar', 'tube']);
 
+/** Sheet and plate are the same flat product; the thickness check decides the size. */
+export const sameForm = (a: string | null, b: string | null) => a === b || (!!a && !!b && ['sheet', 'plate'].includes(a) && ['sheet', 'plate'].includes(b));
+
+/**
+ * Comparable standard designation: "ASTM A240/A240M-20a", "astm a240" and "A240" → "ASTMA240";
+ * "QQ-A-250/11" and "QQ A-250/11" → "QQA250/11".
+ */
+export function standardKey(s: string): string {
+  let k = s.toUpperCase().replace(/\s+/g, ' ').trim();
+  k = k.replace(/\s*\/\s*[A-Z]?\d+M\b/, ''); // dual-unit designation "/A240M"
+  k = k.replace(/(\d[A-Z]?)-(?:19|20)?\d{2}[A-Z]?$/, '$1'); // edition year "-14", "-20a"
+  if (/^[ABE]\d{1,4}[A-Z]?$/.test(k)) k = `ASTM ${k}`;
+  return k.replace(/[\s-]/g, '');
+}
+
 const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '?' : `${r4(n)}`);
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const close = (a: number | null, b: number | null) => a !== null && b !== null && Math.abs(a - b) <= DIM_TOL;
@@ -56,7 +71,7 @@ export function normalizeSpec(spec: Spec): Normalized {
     if (anyDim && spec.dimensionUnit && spec.dimensionUnit !== 'in') notes.push(`Dimensions converted from ${spec.dimensionUnit} to inches.`);
   }
   if (spec.gauge !== null && out.thickness === null) {
-    const g = gaugeToInches(spec.gauge, spec.material);
+    const g = gaugeToInches(spec.gauge, spec.material, spec.form);
     if (g) {
       out.thickness = g.inches;
       out.dimensionUnit = 'in';
@@ -87,18 +102,21 @@ function describe(spec: Spec): string {
 function missingInfoQuestions(item: ExtractedItem, n: Spec, lineNo: number): string[] {
   const s = item.spec;
   const q: string[] = [];
-  const what = `Line ${lineNo} (${describe(s)})`;
+  const what = `Item ${lineNo} (${describe(s)})`;
   if (!s.material && !s.grade) q.push(`${what}: which material and grade are required?`);
   else if (!s.grade) q.push(`${what}: which ${s.material ?? ''} grade is required?`.replace('  ', ' '));
   if (!s.form) q.push(`${what}: which product form is required (sheet, plate, round bar, flat bar, tube)?`);
   if (n.material === 'aluminum' && !s.temper) {
-    const tempers = [...new Set(CATALOG.filter((p) => p.grade === n.grade && p.form === n.form).map((p) => p.temper).filter(Boolean))];
+    // Only tempers actually stocked in the requested size, so the suggested answer can match.
+    const sized = (want: number | null, have: number | null) => want === null || close(want, have);
+    const tempers = [...new Set(CATALOG.filter((p) => p.grade === n.grade && sameForm(p.form, n.form)
+      && sized(n.thickness, p.thickness) && sized(n.width, p.width) && sized(n.length, p.length) && sized(n.diameter, p.diameter)).map((p) => p.temper).filter(Boolean))];
     q.push(`${what}: ${s.grade ?? 'aluminum'} is supplied in several tempers and none was stated. Which temper is required${tempers.length ? ` (available: ${tempers.join(', ')})` : ' (e.g. T6, T651)'}?`);
   }
   const anyDim = [s.thickness, s.width, s.length, s.diameter, s.tolerance].some((v) => v !== null);
   if (anyDim && !s.dimensionUnit) q.push(`${what}: are the dimensions in inches or millimeters?`);
   if (s.gauge !== null && s.thickness !== null && s.dimensionUnit) {
-    const gauge = gaugeToInches(s.gauge, s.material);
+    const gauge = gaugeToInches(s.gauge, s.material, n.form);
     if (gauge && n.thickness !== null && Math.abs(gauge.inches - n.thickness) > DIM_TOL)
       q.push(`${what}: ${s.gauge} ga means ${gauge.inches} in, but the stated thickness is ${n.thickness} in. Which thickness is required?`);
   }
@@ -144,14 +162,18 @@ function checks(n: Spec, raw: Spec, p: CatalogProduct): Check[] {
   const push = (field: string, ok: boolean, want: string, have: string) => c.push({ field, ok, detail: ok ? `${field}: ${have}` : `${field}: requested ${want}, product is ${have}` });
   push('material', n.material === p.material, `${n.material}`, p.material);
   push('grade', (n.grade ?? '').toUpperCase() === p.grade.toUpperCase(), `${n.grade}`, p.grade);
-  push('form', n.form === p.form, `${n.form}`, p.form);
+  push('form', sameForm(n.form, p.form), `${n.form}`, p.form === n.form ? p.form : `${p.form} (same product at this thickness)`);
   if (n.temper || p.material === 'aluminum') push('temper', (n.temper ?? '').toUpperCase() === (p.temper ?? '').toUpperCase(), `${n.temper ?? 'unspecified'}`, p.temper ?? 'none');
   if (raw.gauge !== null && p.gauge !== null) push('gauge', raw.gauge === p.gauge, `${raw.gauge} ga`, `${p.gauge} ga`);
   if (n.thickness !== null || p.thickness !== null) push('thickness', close(n.thickness, p.thickness), `${fmt(n.thickness)} in`, `${fmt(p.thickness)} in`);
   if (n.diameter !== null || p.diameter !== null) push('diameter', close(n.diameter, p.diameter), `${fmt(n.diameter)} in`, `${fmt(p.diameter)} in`);
   if (n.width !== null || p.width !== null) push('width', close(n.width, p.width), `${fmt(n.width)} in`, `${fmt(p.width)} in`);
   if (n.length !== null || p.length !== null) push('length', close(n.length, p.length), `${fmt(n.length)} in`, `${fmt(p.length)} in`);
-  if (n.finish) push('finish', (p.finish ?? '').toLowerCase() === n.finish.toLowerCase(), n.finish, p.finish ?? 'not documented');
+  if (n.finish) {
+    // Aluminum without a documented finish is supplied mill finish.
+    const finish = p.finish ?? (p.material === 'aluminum' ? 'mill' : null);
+    push('finish', (finish ?? '').toLowerCase() === n.finish.toLowerCase(), n.finish, finish ?? 'not documented');
+  }
   if (n.tolerance !== null) push('tolerance', false, `±${fmt(n.tolerance)} in`, p.thicknessTolerance ? `documented as "${p.thicknessTolerance}" (needs manual verification)` : 'not documented');
   return c;
 }
@@ -168,7 +190,7 @@ function match(n: Spec, raw: Spec): MatchResult {
   });
   const exact = scored.filter((s) => s.failures.length === 0).map((s) => s.product);
   const near = scored
-    .filter((s) => s.failures.length > 0 && s.failures.length <= 2 && s.product.material === n.material && s.product.form === n.form)
+    .filter((s) => s.failures.length > 0 && s.failures.length <= 2 && s.product.material === n.material && sameForm(s.product.form, n.form))
     .sort((a, b) => a.failures.length - b.failures.length)
     .slice(0, 3)
     .map((s) => ({ product: s.product, failures: s.failures }));
@@ -187,7 +209,7 @@ function compliance(n: Spec, p: CatalogProduct | null): Compliance[] {
         : { requirement: 'MTR', status: 'missing', evidence: 'Supplier page does not document MTR availability for this item.' });
   } else out.push({ requirement: 'MTR', status: 'not_requested', evidence: 'Not requested.' });
   for (const std of n.standards) {
-    const ok = p?.standards.some((s) => s.replace(/\s+/g, '').toUpperCase() === std.replace(/\s+/g, '').toUpperCase());
+    const ok = p?.standards.some((s) => standardKey(s) === standardKey(std));
     out.push(ok ? { requirement: std, status: 'verified', evidence: `Listed on supplier page ${p!.url} (retrieved ${p!.retrievedDate}).` }
       : { requirement: std, status: 'missing', evidence: p ? 'Not listed for the matched product.' : 'No matched product to verify.' });
   }
@@ -198,7 +220,8 @@ function compliance(n: Spec, p: CatalogProduct | null): Compliance[] {
       ? { requirement: `Origin: ${n.countryOfOrigin}`, status: 'verified', evidence: `Supplier documents origin ${origin}.` }
       : { requirement: `Origin: ${n.countryOfOrigin}`, status: 'missing', evidence: origin ? `Documented origin is ${origin}.` : 'Country of origin is not documented; it is treated as unknown.' });
   } else out.push({ requirement: 'Country of origin', status: 'not_requested', evidence: 'No restriction requested.' });
-  return out;
+  // Requirement labels echo customer text; keep them within the 200-character contract.
+  return out.map((c) => (c.requirement.length > 200 ? { ...c, requirement: `${c.requirement.slice(0, 199)}…` } : c));
 }
 
 function daysBetween(a: string, b: string): number {
@@ -259,7 +282,7 @@ export function buildQuote(input: QuoteInputs): Quote {
     let product: CatalogProduct | null = null;
 
     if (item.classification?.material && n.material && item.classification.confidence >= 0.8 && item.classification.material !== n.material && !['unknown', 'other metal'].includes(item.classification.material)) {
-      questions.push(`Line ${lineNo}: the classifier reads this as ${item.classification.material} but the extracted material is ${n.material}. Which is correct?`);
+      questions.push(`Item ${lineNo}: the classifier reads this as ${item.classification.material} but the extracted material is ${n.material}. Which is correct?`);
     }
     if (item.classification?.material === 'not metal' && !n.material && !n.grade) {
       explanation.push('Classified as a non-metal item or service; exclude it if RudCo does not supply it.');
@@ -272,10 +295,10 @@ export function buildQuote(input: QuoteInputs): Quote {
       } else if (m.exact.length > 1) {
         const finishes = [...new Set(m.exact.map((p) => p.finish ?? 'unspecified'))];
         questions.push(finishes.length > 1
-          ? `Line ${lineNo}: ${m.exact.length} catalog items match and differ by finish (${finishes.join(', ')}). Which finish is required?`
-          : `Line ${lineNo}: ${m.exact.length} catalog items match (${m.exact.map((p) => p.supplierPartNumber).join(', ')}). Which one should be quoted?`);
+          ? `Item ${lineNo}: ${m.exact.length} catalog items match and differ by finish (${finishes.join(', ')}). Which finish is required?`
+          : `Item ${lineNo}: ${m.exact.length} catalog items match (${m.exact.map((p) => p.supplierPartNumber).join(', ')}). Which one should be quoted?`);
       } else {
-        blockers.push(`Line ${lineNo}: no catalog product satisfies every requirement. No substitution has been made.`);
+        blockers.push(`Item ${lineNo}: no catalog product satisfies every requirement. No substitution has been made.`);
         explanation.push('No exact match.');
       }
     }
@@ -293,11 +316,11 @@ export function buildQuote(input: QuoteInputs): Quote {
     if (item.spec.quantity !== null && item.spec.quantity > 0) {
       if (unit === 'pc' || (unit === null && Number.isInteger(item.spec.quantity) && n.form && SIZED_FORMS.has(n.form))) {
         if (Number.isInteger(item.spec.quantity)) qtyPieces = item.spec.quantity;
-        else { blockers.push(`Line ${lineNo}: fractional piece quantity ${item.spec.quantity} cannot be quoted.`); questions.push(`Line ${lineNo}: how many whole pieces are required?`); }
+        else { blockers.push(`Item ${lineNo}: fractional piece quantity ${item.spec.quantity} cannot be quoted.`); questions.push(`Item ${lineNo}: how many whole pieces are required?`); }
         if (unit === null) explanation.push(`Bare count ${item.spec.quantity} of cut-size ${n.form} read as pieces.`);
       } else if (product) {
-        blockers.push(`Line ${lineNo}: quantity is in "${unit}"; converting ${unit} to pieces is not supported. Please restate the quantity in pieces.`);
-        questions.push(`Line ${lineNo}: how many cut-size pieces are required? The stated quantity in ${unit} cannot be converted without buyer confirmation.`);
+        blockers.push(`Item ${lineNo}: quantity is in "${unit}"; converting ${unit} to pieces is not supported. Please restate the quantity in pieces.`);
+        questions.push(`Item ${lineNo}: how many cut-size pieces are required? The stated quantity in ${unit} cannot be converted without buyer confirmation.`);
       }
     }
 
@@ -316,7 +339,7 @@ export function buildQuote(input: QuoteInputs): Quote {
       const total = demand.get(product.sku) ?? qtyPieces ?? 0;
       if (item.included && total > product.stock) {
         const sharing = lines.filter((o) => o.item.included && o.product?.sku === product.sku).map((o) => o.lineNo);
-        l.blockers.push(`Line ${l.lineNo}: insufficient stock — ${product.stock} on hand (synthetic) vs ${total} requested${sharing.length > 1 ? ` across lines ${sharing.join(', ')}` : ''}.`);
+        l.blockers.push(`Item ${l.lineNo}: insufficient stock — ${product.stock} on hand (synthetic) vs ${total} requested${sharing.length > 1 ? ` across items ${sharing.join(', ')}` : ''}.`);
       }
       if (qtyPieces) pricing = priceLine(product, qtyPieces, input.targetMargin, input.date);
       l.explanation.push(`Stock ${product.stock} pc on hand (synthetic); total quote demand ${total} pc.`);
@@ -329,8 +352,8 @@ export function buildQuote(input: QuoteInputs): Quote {
     else if (anyMissing || anyPending) status = 'Compliance Pending';
     else if (l.blockers.length || !pricing) status = 'Matched';
     else status = 'Ready';
-    if (pricing && pricing.competitive === false) warnings.push(`Line ${l.lineNo}: target margin puts the price above the benchmark.`);
-    if (anyMissing) l.blockers.push(`Line ${l.lineNo}: requested compliance cannot be verified: ${l.comp.filter((c) => c.status === 'missing').map((c) => c.requirement).join(', ')}.`);
+    if (item.included && pricing && pricing.competitive === false) warnings.push(`Item ${l.lineNo}: target margin puts the price above the benchmark.`);
+    if (anyMissing) l.blockers.push(`Item ${l.lineNo}: requested compliance cannot be verified: ${l.comp.filter((c) => c.status === 'missing').map((c) => c.requirement).join(', ')}.`);
 
     return {
       id: item.id,

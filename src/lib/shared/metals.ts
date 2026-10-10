@@ -24,6 +24,12 @@ export const GAUGE_TABLES: Record<'carbon steel' | 'stainless steel' | 'aluminum
   },
 };
 
+/** Tube wall gauge (Birmingham Wire Gauge), used for tube instead of the sheet tables. */
+export const TUBE_WALL_GAUGE = {
+  name: 'Birmingham Wire Gauge (tube wall)',
+  table: { 10: 0.134, 11: 0.12, 12: 0.109, 13: 0.095, 14: 0.083, 15: 0.072, 16: 0.065, 17: 0.058, 18: 0.049, 19: 0.042, 20: 0.035, 22: 0.028 } as Record<number, number>,
+};
+
 /** Densities in lb/in³ (published nominal values). */
 export const DENSITIES: { id: string; label: string; family: string; lbPerIn3: number }[] = [
   { id: 'cs', label: 'Carbon steel (A36, 1018, 1045)', family: 'carbon steel', lbPerIn3: 0.2836 },

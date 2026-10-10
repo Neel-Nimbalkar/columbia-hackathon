@@ -42,9 +42,21 @@ async function send(input: RequestInfo, init: RequestInit): Promise<Response> {
   }
 }
 
+/** Cancel or timeout can also land while the body is downloading; report it like one during fetch. */
+async function body<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (err) {
+    if ((err as Error).name === 'TimeoutError') throw new ApiRequestError('The request timed out. Large or scanned RFQs can take a few minutes; please retry.', 'CLIENT_TIMEOUT', 0);
+    if ((err as Error).name === 'AbortError') throw new ApiRequestError('Cancelled.', 'CANCELLED', 0);
+    if (err instanceof SyntaxError) throw new ApiRequestError('The quotation could not be read. Please retry.', 'INVALID_RESPONSE', 0);
+    throw new ApiRequestError('Connection lost. Check your connection and retry.', 'NETWORK_ERROR', 0);
+  }
+}
+
 async function quoteResponse(response: Response): Promise<Quote> {
   if (!response.ok) return failure(response);
-  const parsed = quoteSchema.safeParse(await response.json());
+  const parsed = quoteSchema.safeParse(await body(() => response.json()));
   if (!parsed.success) throw new ApiRequestError('The quotation could not be read. Please retry.', 'INVALID_RESPONSE', response.status);
   return parsed.data;
 }
@@ -79,7 +91,7 @@ export async function downloadPdf(quote: Quote): Promise<void> {
   });
   if (!response.ok) return failure(response);
   if (!response.headers.get('content-type')?.includes('application/pdf')) throw new ApiRequestError('The export endpoint did not return a PDF.', 'INVALID_RESPONSE', response.status);
-  const url = URL.createObjectURL(await response.blob());
+  const url = URL.createObjectURL(await body(() => response.blob()));
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = `${quote.id}.pdf`;
@@ -138,5 +150,5 @@ export async function signQuote(quote: Quote, signature: Signature): Promise<{ b
   const id = response.headers.get('X-Quote-Acceptance-Id');
   const signedAt = response.headers.get('X-Quote-Accepted-At');
   if (!id || !signedAt) throw new ApiRequestError('Signing did not return an acceptance record.', 'INVALID_RESPONSE', response.status);
-  return { blob: await response.blob(), id, signedAt };
+  return { blob: await body(() => response.blob()), id, signedAt };
 }

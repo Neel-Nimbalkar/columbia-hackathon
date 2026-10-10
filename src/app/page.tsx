@@ -4,6 +4,7 @@ import type { Signature } from '@/lib/shared/acceptance';
 import type { Quote, Spec } from '@/lib/shared/schema';
 import { ApiRequestError, downloadPdf, downloadBlob, signQuote, processRfq, updateQuote } from '@/lib/client/api';
 import { recordProcessed, recordUpdate, useLedger } from '@/lib/client/ledger';
+import { percentToMargin } from '@/lib/shared/pricing';
 import { Sidebar, type View } from '@/components/Sidebar';
 import { NewRfq, type IntakeDraft } from '@/components/NewRfq';
 import { Workspace } from '@/components/Workspace';
@@ -32,6 +33,8 @@ export default function Home() {
   const [draft, setDraft] = useState<IntakeDraft>({ text: '', files: [], customer: '', margin: '20' });
   const ledger = useLedger();
   const mainRef = useRef<HTMLElement>(null);
+  // State-based guards are stale inside async handlers (a sample file can still be loading); this one is not.
+  const inFlight = useRef(false);
 
   useEffect(() => { mainRef.current?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }); }, [view]);
 
@@ -52,25 +55,28 @@ export default function Home() {
   }
 
   async function process(input: { text: string; files: File[]; customer: string; margin: number; source: string }) {
-    if (processing || busy) return;
+    if (processing || busy || inFlight.current) return;
+    inFlight.current = true;
     const controller = new AbortController();
     const startedAt = Date.now();
     setError(null);
     setNotice(null);
     setProcessing({ startedAt, label: input.source, hasFiles: input.files.length > 0, controller });
     try {
-      const q = await processRfq({ text: input.text, files: input.files, customer: input.customer, targetMargin: input.margin / 100, signal: controller.signal });
+      const q = await processRfq({ text: input.text, files: input.files, customer: input.customer, targetMargin: percentToMargin(input.margin), signal: controller.signal });
       recordProcessed(q, input.source, Date.now() - startedAt);
       open(q);
     } catch (e) {
       fail(e);
     } finally {
+      inFlight.current = false;
       setProcessing(null);
     }
   }
 
   async function changeLine(itemId: string, input: { response?: string; corrections?: Spec; included?: boolean; targetMargin?: number }, label = 'Updating') {
-    if (!quote || busy) return false;
+    if (!quote || busy || inFlight.current) return false;
+    inFlight.current = true;
     setBusy(label);
     setError(null);
     try {
@@ -82,12 +88,14 @@ export default function Home() {
       fail(e);
       return false;
     } finally {
+      inFlight.current = false;
       setBusy(null);
     }
   }
 
   async function exportPdf(q: Quote) {
-    if (busy) return;
+    if (busy || inFlight.current) return;
+    inFlight.current = true;
     setBusy('Generating PDF');
     setError(null);
     try {
@@ -97,6 +105,7 @@ export default function Home() {
     } catch (e) {
       fail(e);
     } finally {
+      inFlight.current = false;
       setBusy(null);
     }
   }
@@ -107,7 +116,8 @@ export default function Home() {
   }
 
   async function accept(signature: Signature) {
-    if (!quote || busy) return;
+    if (!quote || busy || inFlight.current) return;
+    inFlight.current = true;
     setBusy('Signing quote'); setError(null);
     try {
       const result = await signQuote(quote, signature);
@@ -115,7 +125,7 @@ export default function Home() {
       downloadBlob(result.blob, `${quote.id}-signed.pdf`);
       recordUpdate(quote);
       setNotice('Signed PDF downloaded. Send it to RudCo to request purchase.');
-    } catch (e) { fail(e); } finally { setBusy(null); }
+    } catch (e) { fail(e); } finally { inFlight.current = false; setBusy(null); }
   }
 
   return (
