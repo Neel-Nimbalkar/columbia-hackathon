@@ -4,6 +4,8 @@
  */
 export interface SampleRfq {
   id: string;
+  /** Input type shown on the card, e.g. "Excel (.xlsx)". */
+  format: string;
   title: string;
   summary: string;
   expect: string;
@@ -11,13 +13,13 @@ export interface SampleRfq {
   /** Pasted email text, or the /samples file to upload. */
   text?: string;
   file?: { path: string; name: string; type: string };
-  /** Answer to type when the sample asks a question. */
-  answer?: string;
 }
 
+/** One sample per supported input type. */
 export const SAMPLES: SampleRfq[] = [
   {
     id: 'ready',
+    format: 'Pasted email',
     title: 'Messy shop email',
     summary: 'Three lines, shorthand like "16ga", "CRS", fractions.',
     expect: 'All three lines match and price; ready to export.',
@@ -40,53 +42,62 @@ Dana Ortiz
 Purchasing, Northfield Fabrication`,
   },
   {
-    id: 'clarify',
-    title: 'Missing temper',
-    summary: '6061 plate with no temper stated.',
-    expect: 'Asks which temper. Answer "T6" to complete it.',
-    kind: 'text',
-    answer: 'T6',
-    text: `Subject: Quote request - aluminum plate
-
-Please quote 8 pcs 6061 aluminum plate, .125" thick, 12" x 24". Price per piece please.
-
-Marcus Lee
-Lakeview Robotics`,
-  },
-  {
-    id: 'blocked',
-    title: 'Unavailable grade & certs',
-    summary: '316L, 17-4 PH, DFARS, US melt and 3.1 MTRs.',
-    expect: 'Refuses the near match; shows alternatives and missing compliance.',
-    kind: 'text',
-    text: `RFQ #AE-5530 - aerospace bracket stock
-
-Line 1: 316L stainless sheet, 16 ga, 12 x 24 in, 2B finish, qty 10. ASTM A240.
-Line 2: 17-4 PH round bar, condition H1025, 1" dia x 12" long - 5 pcs, AMS 5643.
-
-All material must be DFARS compliant, US melt, with MTRs (EN 10204 3.1).
-
-Regards,
-Avery Chen, Summit Aero Components`,
-  },
-  {
     id: 'form',
-    title: 'Fillable RFQ form (PDF)',
+    format: 'PDF form',
+    title: 'Fillable RFQ form',
     summary: 'Government-style form; values live in form fields.',
     expect: 'Reads the schedule table from the form fields; four ready lines.',
     kind: 'file',
     file: { path: '/samples/harbor-marine-rfq-form.pdf', name: 'harbor-marine-rfq-form.pdf', type: 'application/pdf' },
   },
   {
+    id: 'scan',
+    format: 'Scanned PDF',
+    title: 'Scanned purchase request',
+    summary: 'Image-only PDF with no text layer; read by the vision model.',
+    expect: 'Three ready lines; asks for grade and temper on "aluminum sheet".',
+    kind: 'file',
+    file: { path: '/samples/great-lakes-rfq-scan.pdf', name: 'great-lakes-rfq-scan.pdf', type: 'application/pdf' },
+  },
+  {
+    id: 'photo',
+    format: 'Photo (.png)',
+    title: 'Phone photo of a printout',
+    summary: 'Angled photo of a typed RFQ with a handwritten note.',
+    expect: 'Transcribes all three lines; ready to export.',
+    kind: 'file',
+    file: { path: '/samples/ridgeline-fab-rfq-photo.png', name: 'ridgeline-fab-rfq-photo.png', type: 'image/png' },
+  },
+  {
     id: 'xlsx',
-    title: 'Spreadsheet BOM (Excel)',
+    format: 'Excel (.xlsx)',
+    title: 'Spreadsheet BOM',
     summary: 'Merged title, a blank row, a formula and a "TBD" quantity.',
-    expect: 'Flags the missing temper and the invalid quantity.',
+    expect: 'Asks for the missing temper (answer "T6") and the quantity.',
     kind: 'file',
     file: { path: '/samples/lakeview-robotics-rfq.xlsx', name: 'lakeview-robotics-rfq.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
   },
   {
+    id: 'csv',
+    format: 'CSV',
+    title: 'BOM export with certs',
+    summary: 'Standard, cert and origin columns per line.',
+    expect: 'ASTM verified; MTR and USA origin flagged as missing on line 1.',
+    kind: 'file',
+    file: { path: '/samples/apex-machining-rfq.csv', name: 'apex-machining-rfq.csv', type: 'text/csv' },
+  },
+  {
+    id: 'docx',
+    format: 'Word (.docx)',
+    title: 'Aerospace RFQ letter',
+    summary: '316L, 17-4 PH, DFARS, US melt and 3.1 MTRs in a Word table.',
+    expect: 'Refuses near matches; shows alternatives and missing compliance.',
+    kind: 'file',
+    file: { path: '/samples/summit-aero-rfq.docx', name: 'summit-aero-rfq.docx', type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+  },
+  {
     id: 'eml',
+    format: 'Email file (.eml)',
     title: 'Email with CSV attachment',
     summary: 'Saved .eml; the BOM is an attached semicolon CSV.',
     expect: 'Reads the attachment; MTRs on stainless block export until resolved.',

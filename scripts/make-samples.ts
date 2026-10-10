@@ -1,9 +1,12 @@
 /**
  * Generates the sample RFQ files served from /samples (npx tsx scripts/make-samples.ts).
  * Customers are fictional; every line targets real catalog sizes or a documented edge case.
+ * The photo (public/samples/ridgeline-fab-rfq-photo.png) and the scan source
+ * (scripts/sample-assets/great-lakes-scan.png) are checked-in raster images.
  */
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 const OUT = 'public/samples';
@@ -144,11 +147,65 @@ function email(): string {
   ].join('\r\n');
 }
 
+function csv(): string {
+  return [
+    'Item,Qty,UOM,Description,Size (in),Standard,Certs,Origin',
+    '1,6,EA,304 stainless sheet #2 finish 14 ga,12 x 24,ASTM A240,MTR,USA',
+    '2,10,EA,6061-T6 aluminum sheet,0.062 x 12 x 18,ASTM B209,,',
+    '3,4,EA,1018 cold finished round bar,1 dia x 48,,,',
+    '',
+  ].join('\r\n');
+}
+
+const xmlEscape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** Minimal WordprocessingML: a letter with paragraphs and a bordered line-item table. */
+async function wordDoc(): Promise<Uint8Array> {
+  const p = (t: string, bold = false) => `<w:p><w:r>${bold ? '<w:rPr><w:b/></w:rPr>' : ''}<w:t xml:space="preserve">${xmlEscape(t)}</w:t></w:r></w:p>`;
+  const cell = (t: string, bold = false) => `<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>${p(t, bold)}</w:tc>`;
+  const row = (cells: string[], bold = false) => `<w:tr>${cells.map((c) => cell(c, bold)).join('')}</w:tr>`;
+  const border = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map((b) => `<w:${b} w:val="single" w:sz="4" w:color="999999"/>`).join('');
+  const table = `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders>${border}</w:tblBorders></w:tblPr>${[
+    row(['Line', 'Description', 'Size', 'Qty', 'Spec'], true),
+    row(['1', '316L stainless sheet, 2B finish', '16 ga x 12 in x 24 in', '10', 'ASTM A240']),
+    row(['2', '17-4 PH stainless round bar, cond. H1025', '1 in dia x 12 in', '5', 'AMS 5643']),
+    row(['3', '4140 alloy steel round bar, cold finished', '1 in dia x 36 in', '4', '']),
+  ].join('')}</w:tbl>`;
+  const body = [
+    p('Summit Aero Components', true),
+    p('Request for Quotation AE-5530 — aerospace bracket stock'),
+    p('Date: October 8, 2026'),
+    p('Please quote the following material:'),
+    table,
+    p('All material must be DFARS compliant, US melt, and ship with mill test reports (EN 10204 3.1).'),
+    p('Regards,'),
+    p('Avery Chen, Buyer'),
+  ].join('');
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
+  zip.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
+  zip.file('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`);
+  return zip.generateAsync({ type: 'uint8array' });
+}
+
+/** Image-only PDF (no text layer), so the server treats it as a scan and transcribes it. */
+async function scannedPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const png = await doc.embedPng(await readFile('scripts/sample-assets/great-lakes-scan.png'));
+  const page = doc.addPage([612, 792]);
+  page.drawImage(png, { x: 0, y: 0, width: 612, height: 792 });
+  doc.setTitle('Great Lakes Fabricators RFQ GLF-RFQ-0937 (scan)');
+  return doc.save();
+}
+
 async function main() {
   await mkdir(OUT, { recursive: true });
   await writeFile(`${OUT}/harbor-marine-rfq-form.pdf`, await formPdf());
   await writeFile(`${OUT}/lakeview-robotics-rfq.xlsx`, await workbook());
   await writeFile(`${OUT}/keystone-pumps-rfq.eml`, email());
+  await writeFile(`${OUT}/apex-machining-rfq.csv`, csv());
+  await writeFile(`${OUT}/summit-aero-rfq.docx`, await wordDoc());
+  await writeFile(`${OUT}/great-lakes-rfq-scan.pdf`, await scannedPdf());
   console.log(`Wrote samples to ${OUT}/`);
 }
 
