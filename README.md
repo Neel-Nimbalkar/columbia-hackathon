@@ -38,6 +38,12 @@ Sample files live in `public/samples/` (regenerate with `npx tsx scripts/make-sa
 
 **Workspace:** original RFQ with the selected line highlighted, extracted lines with status, per-line spec/provenance, catalog match and alternatives, pricing with the room between our margin floor and the benchmark, compliance evidence, buyer answers, spec corrections, include/exclude, margin repricing, and a one-click buyer email listing every open question. **Final quote:** editable customer/reference/dates, readiness checklist that links back to each blocked line, server-validated PDF and a cover email.
 
+## Tools (side nav)
+
+- **Pipeline** — every processed RFQ is logged in this browser (no account, no server storage). Downloading a quote PDF marks it sent; record won/lost with a loss reason. Shows won revenue, win rate, open pipeline, value-weighted margin, median RFQ→ready-quote time, first-pass ready rate, a weekly quoted-vs-won chart (with data table), conversion funnel, loss reasons, top customers, follow-ups for quotes that are expiring or quiet (with a drafted follow-up email), notes, reopen-in-workspace and CSV export.
+- **Catalog & stock** — searchable, sortable catalog with stock, lead time, cost, price at any margin, list price and headroom; product detail with a margin price ladder; one click adds an exact-match line to the New RFQ draft.
+- **Calculator** — weight and price per lb/piece/ft for sheet, bar, tube and angle in 12 alloys; gauge ↔ decimal for steel, stainless and aluminum side by side; fraction ↔ decimal ↔ mm with nearest 1/64; margin vs markup with a benchmark check.
+
 ## Document handling
 
 - **PDF:** text is rebuilt into visual lines from positions, so table rows stay together and columns are separated by `|`. Fillable-form values (text, choice, checkbox `[x]`/`[ ]`, radio) are merged into the row they sit on; template placeholders (`MM/DD/YY`, `$0.00`, `Name`) are dropped. XFA forms are read through pdf.js. Pages with no text layer are treated as scans: the page image is extracted, encoded as PNG and transcribed by the vision model (up to 10 pages), labeled `(transcribed)`.

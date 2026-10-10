@@ -27,6 +27,8 @@ export async function validateQuoteForExport(submitted: Quote): Promise<Quote> {
       classification: i.classification ?? null,
     })),
     provider: submitted.provider,
-    warnings: submitted.warnings.filter(w => !/^Line \d+: target margin/.test(w)),
+    // Document-reading notes (OCR, truncation, skipped attachments) are informational and survive
+    // recomputation; engine-derived warnings are regenerated, never carried over.
+    warnings: submitted.warnings.filter((w) => !/^Line \d+: /.test(w)).slice(0, 30),
   });
 }
