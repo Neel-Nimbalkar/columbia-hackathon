@@ -77,7 +77,8 @@ export async function chatVisionText(
         }],
       }),
     }, { timeoutMs: opts.timeoutMs ?? 90_000, retries: 1 });
-    const payload = (await res.json().catch(() => null)) as { model?: string; choices?: { message?: { content?: string | null } }[] } | null;
+    const payload = (await res.json().catch(() => null)) as { model?: string; choices?: { message?: { content?: string | null }; finish_reason?: string }[] } | null;
+    if (payload?.choices?.[0]?.finish_reason === 'length') throw new HttpError(502, 'UPSTREAM_TRUNCATED', `Vision transcription hit its output limit for ${image.label}.`);
     const text = payload?.choices?.[0]?.message?.content ?? '';
     if (!text.trim()) throw new HttpError(502, 'UPSTREAM_INVALID_OUTPUT', `The vision model returned no text for ${image.label}.`);
     const result = { data: text, model: payload?.model ?? model };
@@ -116,6 +117,7 @@ async function chatJsonInner<T>(
     const payload = (await res.json().catch(() => null)) as
       | { model?: string; choices?: { message?: { content?: string | null }; finish_reason?: string }[] }
       | null;
+    if (payload?.choices?.[0]?.finish_reason === 'length') throw new HttpError(502, 'UPSTREAM_TRUNCATED', 'The model reply hit its output limit.');
     const content = payload?.choices?.[0]?.message?.content ?? '';
     if (payload?.model && payload.model !== model && !payload.model.endsWith(model.split('/').pop()!)) {
       throw new HttpError(502, 'UPSTREAM_MODEL_MISMATCH', `Nicrron answered with ${payload.model} instead of the configured ${model}.`);

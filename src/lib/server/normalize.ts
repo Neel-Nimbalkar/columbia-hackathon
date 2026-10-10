@@ -16,9 +16,9 @@ export function parseMeasure(raw: string | number | null | undefined): number | 
   if (typeof raw === 'number') return Number.isFinite(raw) && raw > 0 ? raw : null;
   const s = raw.trim().replace(/["”″']|in(ch(es)?)?\.?$|mm$|ft$|feet$/gi, '').trim();
   let m = /^(\d+)\s*[- ]\s*(\d+)\s*\/\s*(\d+)$/.exec(s);
-  if (m) return Number(m[1]) + Number(m[2]) / Number(m[3]);
+  if (m) { const n = Number(m[1]) + Number(m[2]) / Number(m[3]); return Number(m[3]) > 0 && Number.isFinite(n) && n > 0 ? n : null; }
   m = /^(\d+)\s*\/\s*(\d+)$/.exec(s);
-  if (m) return Number(m[2]) === 0 ? null : Number(m[1]) / Number(m[2]);
+  if (m) { const n = Number(m[1]) / Number(m[2]); return Number.isFinite(n) && n > 0 ? n : null; }
   const n = Number(s.replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
 }
@@ -162,7 +162,7 @@ export type QtyUnit = 'pc' | 'ft' | 'lb' | 'kg' | 'in' | 'm';
 export function normalizeQtyUnit(raw: string | null | undefined): QtyUnit | null {
   if (!raw) return null;
   const s = raw.trim().toLowerCase().replace(/[().]/g, '');
-  if (/^(pc|pcs|piece|pieces|ea|each|sheet|sheets|sh|sht|shts|plate|plates|bar|bars|length|lengths|lg|lgs|lgth|lgths|units?|qty|nos?|blank|blanks|tube|tubes|stick|sticks|pk|pkg)$/.test(s)) return 'pc';
+  if (/^(pc|pcs|piece|pieces|ea|each|sheet|sheets|sh|sht|shts|plate|plates|bar|bars|length|lengths|lg|lgs|lgth|lgths|units?|qty|nos?|blank|blanks|tube|tubes|stick|sticks)$/.test(s)) return 'pc';
   if (/^(ft|feet|foot|lf|lin ft|linear feet)$/.test(s)) return 'ft';
   if (/^(lb|lbs|pound|pounds|#)$/.test(s)) return 'lb';
   if (/^(kg|kgs|kilo|kilos|kilogram|kilograms)$/.test(s)) return 'kg';

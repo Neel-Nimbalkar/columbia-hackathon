@@ -28,9 +28,12 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
   onError: (message: string) => void;
 }) {
   const [drag, setDrag] = useState(false);
+  const [loadingSample, setLoadingSample] = useState(false);
+  const samplePending = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function addFiles(list: FileList | File[]) {
+    if (processing || samplePending.current) return;
     const incoming = Array.from(list);
     const bad = incoming.find((f) => !new RegExp(`(${ACCEPT.split(',').map((e) => e.replace('.', '\\.')).join('|')})$`, 'i').test(f.name));
     if (bad) {
@@ -56,24 +59,27 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
   }
 
   async function runSample(s: SampleRfq) {
-    if (processing) return;
+    if (processing || samplePending.current) return;
+    const m = Number(draft.margin);
+    if (!draft.margin.trim() || !Number.isFinite(m) || m < 0 || m > 80) { onError('Enter a target margin between 0% and 80%.'); return; }
     if (s.kind === 'text') {
       onDraft({ ...draft, text: s.text!, files: [] });
-      onProcess({ text: s.text!, files: [], customer: '', margin: Number(draft.margin) || 20, source: `Sample · ${s.title}` });
+      onProcess({ text: s.text!, files: [], customer: '', margin: m, source: `Sample · ${s.title}` });
       return;
     }
+    samplePending.current = true; setLoadingSample(true);
     try {
-      const res = await fetch(s.file!.path);
+      const res = await fetch(s.file!.path, { signal: AbortSignal.timeout(20_000) });
       if (!res.ok) throw new Error();
       const file = new File([await res.blob()], s.file!.name, { type: s.file!.type });
       onDraft({ ...draft, files: [file], text: '' });
-      onProcess({ text: '', files: [file], customer: '', margin: Number(draft.margin) || 20, source: `Sample · ${s.file!.name}` });
+      onProcess({ text: '', files: [file], customer: '', margin: m, source: `Sample · ${s.file!.name}` });
     } catch {
       onError('Could not load the sample file. Please retry.');
-    }
+    } finally { samplePending.current = false; setLoadingSample(false); }
   }
 
-  const canSubmit = !processing && (draft.text.trim().length > 0 || draft.files.length > 0);
+  const canSubmit = !processing && !loadingSample && (draft.text.trim().length > 0 || draft.files.length > 0);
 
   return (
     <>
@@ -86,10 +92,10 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
             onDragLeave={() => setDrag(false)}
             onDrop={(e) => { e.preventDefault(); setDrag(false); if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files); }}
           >
-            <input ref={fileRef} type="file" multiple accept={ACCEPT} className="visually-hidden" aria-label="Upload RFQ files" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
+            <input ref={fileRef} type="file" disabled={!!processing || loadingSample} multiple accept={ACCEPT} className="visually-hidden" aria-label="Upload RFQ files" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
             <Upload size={20} />
             <div>
-              <strong>Drop RFQ files here</strong> or <button className="link" onClick={() => fileRef.current?.click()}>browse</button>
+              <strong>Drop RFQ files here</strong> or <button className="link" disabled={!!processing || loadingSample} onClick={() => fileRef.current?.click()}>browse</button>
               <p>PDF (incl. fillable forms & scans), Word, Excel, CSV, saved emails (.eml) or a photo · up to 5 files, 10 MB each</p>
             </div>
           </div>
@@ -98,7 +104,7 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
               {draft.files.map((f) => (
                 <li key={f.name + f.size}>
                   {fileIcon(f.name)}<span className="file-name">{f.name}</span><span className="muted">{size(f.size)}</span>
-                  <button className="icon-button" aria-label={`Remove ${f.name}`} disabled={!!processing} onClick={() => onDraft({ ...draft, files: draft.files.filter((x) => x !== f) })}><X size={14} /></button>
+                  <button className="icon-button" aria-label={`Remove ${f.name}`} disabled={!!processing || loadingSample} onClick={() => onDraft({ ...draft, files: draft.files.filter((x) => x !== f) })}><X size={14} /></button>
                 </li>
               ))}
             </ul>
@@ -106,6 +112,7 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
 
           <label className="field-label" htmlFor="rfq-text">Email or notes <span className="muted">— combined with any files</span></label>
           <textarea
+            disabled={!!processing || loadingSample}
             id="rfq-text"
             className="rfq-text"
             maxLength={100_000}
@@ -115,10 +122,10 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
           />
           <div className="intake-row">
             <label>Customer <span className="muted">(optional — read from the RFQ)</span>
-              <input value={draft.customer} maxLength={200} onChange={(e) => onDraft({ ...draft, customer: e.target.value })} placeholder="Company name" />
+              <input disabled={!!processing || loadingSample} value={draft.customer} maxLength={200} onChange={(e) => onDraft({ ...draft, customer: e.target.value })} placeholder="Company name" />
             </label>
             <label>Target gross margin
-              <span className="input-suffix"><input type="number" min={0} max={80} step={1} value={draft.margin} onChange={(e) => onDraft({ ...draft, margin: e.target.value })} /><span>%</span></span>
+              <span className="input-suffix"><input disabled={!!processing || loadingSample} type="number" min={0} max={80} step={1} value={draft.margin} onChange={(e) => onDraft({ ...draft, margin: e.target.value })} /><span>%</span></span>
             </label>
             <button className="button primary" disabled={!canSubmit} onClick={submit}>
               {processing ? <Loader2 size={15} className="spin" /> : <ArrowRight size={15} />}Process RFQ
@@ -142,7 +149,7 @@ export function NewRfq({ draft, onDraft, processing, onProcess, onError }: {
                 <h3>{s.title}</h3>
                 <p>{s.summary}</p>
                 <p className="sample-expect">{s.expect}</p>
-                <button className="button secondary small" disabled={!!processing} onClick={() => runSample(s)}><Play size={13} />Run sample</button>
+                <button className="button secondary small" disabled={!!processing || loadingSample} onClick={() => runSample(s)}><Play size={13} />Run sample</button>
               </div>
             ))}
           </div>

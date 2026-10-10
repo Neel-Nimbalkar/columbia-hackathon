@@ -161,7 +161,6 @@ export function tableToSegments(rows: string[][], label: (rowNumber: number) => 
   const filled = (r: string[]) => r.filter(Boolean).length;
   // Prefer a row that looks like column titles; titles and notes often sit above it.
   let headerIndex = cleaned.slice(0, 30).findIndex((r) => r.filter((c) => HEADER_WORD.test(c)).length >= 2);
-  if (headerIndex < 0) headerIndex = cleaned.findIndex((r) => filled(r) >= 2);
   if (headerIndex < 0) return cleaned.flatMap((r, i) => (filled(r) ? [{ ref: label(i + 1), text: r.filter(Boolean).join(' | ') }] : []));
   const header = cleaned[headerIndex]!;
   const out: Segment[] = [];
@@ -203,6 +202,7 @@ async function parseXlsx(buf: Uint8Array, name: string, notes: string[]): Promis
   }
   const segments: Segment[] = [];
   let cells = 0;
+  if (wb.worksheets.some(ws => ws.state === 'veryHidden')) notes.push(`${name}: very-hidden sheets were not read. Review the workbook for additional requirements.`);
   const sheets = wb.worksheets.filter((ws) => ws.state !== 'veryHidden');
   if (sheets.length > MAX_SHEETS) notes.push(`${name}: only the first ${MAX_SHEETS} of ${sheets.length} sheets were read.`);
   for (const ws of sheets.slice(0, MAX_SHEETS)) {
@@ -648,10 +648,14 @@ async function parseEml(buf: Uint8Array, name: string, ctx: ParseContext, notes:
   const { text, attachments } = parseEmail(Buffer.from(buf).toString('latin1'));
   const segments = linesToSegments(text, name);
   const depth = (ctx.depth ?? 0) + 1;
-  const wanted = attachments.filter((a) => !(a.inline && a.contentType.startsWith('image/')) && !(a.contentType.startsWith('image/') && a.bytes.length < 20_000));
+  const wanted = attachments.filter((a) => !(a.inline && a.contentType.startsWith('image/')));
   if (wanted.length > MAX_ATTACHMENTS) notes.push(`${name}: only the first ${MAX_ATTACHMENTS} of ${wanted.length} attachments were read.`);
+  const attachmentNames = new Set<string>();
   for (const a of wanted.slice(0, MAX_ATTACHMENTS)) {
-    const attName = a.name.replace(/[^\w.\- ()]+/g, '_').slice(0, 100) || 'attachment';
+    let attName = a.name.replace(/[^\w.\- ()]+/g, '_').slice(0, 100) || 'attachment';
+    const originalName = attName;
+    for (let n = 2; attachmentNames.has(attName); n++) attName = originalName.replace(/(\.[^.]+)?$/, ` (${n})$1`);
+    attachmentNames.add(attName);
     if (!kindForFileName(attName) || depth > 2) {
       notes.push(`${name}: attachment "${attName}" (${a.contentType}) was not read${depth > 2 ? ' (nested too deep)' : ' — unsupported type'}.`);
       continue;

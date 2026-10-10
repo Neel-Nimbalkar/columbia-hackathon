@@ -1,3 +1,4 @@
+import { isIsoDate } from '@/lib/shared/dates';
 import { z } from 'zod';
 import { quoteSchema } from '@/lib/shared/schema';
 import { errorJson, toErrorResponse } from '@/lib/server/errors';
@@ -18,12 +19,14 @@ export async function POST(request: Request): Promise<Response> {
   try {
     if (Number(request.headers.get('content-length') ?? 0) > 2_000_000) return errorJson(413, 'PAYLOAD_TOO_LARGE', 'Quotation exceeds the export limit.');
     let data: unknown;
-    try { data = await request.json(); } catch { return errorJson(400, 'BAD_REQUEST', 'Send valid JSON.'); }
+    const raw = await request.text();
+    if (raw.length > 2_000_000) return errorJson(413, 'PAYLOAD_TOO_LARGE', 'Quote payload is too large.');
+    try { data = JSON.parse(raw); } catch { return errorJson(400, 'BAD_REQUEST', 'Send valid JSON.'); }
     const parsed = requestSchema.safeParse(data);
     if (!parsed.success) return errorJson(400, 'VALIDATION_FAILED', 'Quotation data is invalid.', parsed.error.issues.slice(0, 10).map((i) => `${i.path.join('.')}: ${i.message}`));
     const submitted = parsed.data.quote;
     if (!submitted.customer.trim()) return errorJson(422, 'QUOTE_BLOCKED', 'Add the customer name before exporting.');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(submitted.date) || !/^\d{4}-\d{2}-\d{2}$/.test(submitted.expires) || submitted.expires < submitted.date)
+    if (!isIsoDate(submitted.date) || !isIsoDate(submitted.expires) || submitted.expires < submitted.date)
       return errorJson(422, 'QUOTE_BLOCKED', 'Set a valid issue date and an expiry on or after it.');
     const quote = await validateQuoteForExport(submitted);
     const blockers = exportBlockers(quote);

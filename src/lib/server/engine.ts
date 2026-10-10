@@ -44,6 +44,10 @@ export function normalizeSpec(spec: Spec): Normalized {
   const notes: string[] = [];
   const out: Spec = { ...spec, standards: [...spec.standards], certifications: [...spec.certifications] };
   const inches = specDimsInches(spec);
+  if (!inches) {
+    // Unit-less customer numbers are not normalized inches.
+    for (const key of ['thickness', 'width', 'length', 'diameter', 'tolerance'] as const) out[key] = null;
+  }
   if (inches) {
     Object.assign(out, inches);
     const anyDim = Object.values(inches).some((v) => v !== null);
@@ -92,6 +96,11 @@ function missingInfoQuestions(item: ExtractedItem, n: Spec, lineNo: number): str
   }
   const anyDim = [s.thickness, s.width, s.length, s.diameter, s.tolerance].some((v) => v !== null);
   if (anyDim && !s.dimensionUnit) q.push(`${what}: are the dimensions in inches or millimeters?`);
+  if (s.gauge !== null && s.thickness !== null && s.dimensionUnit) {
+    const gauge = gaugeToInches(s.gauge, s.material);
+    if (gauge && n.thickness !== null && Math.abs(gauge.inches - n.thickness) > DIM_TOL)
+      q.push(`${what}: ${s.gauge} ga means ${gauge.inches} in, but the stated thickness is ${n.thickness} in. Which thickness is required?`);
+  }
   const form = n.form;
   if (form === 'sheet' || form === 'plate' || form === 'flat bar') {
     if (n.thickness === null && s.gauge === null) q.push(`${what}: what thickness is required?`);
@@ -107,13 +116,17 @@ function missingInfoQuestions(item: ExtractedItem, n: Spec, lineNo: number): str
     if (n.diameter === null) q.push(`${what}: what diameter is required?`);
     if (n.length === null) q.push(`${what}: what length per piece is required?`);
   }
+  if (form === 'square bar' || form === 'hex bar') {
+    if (n.thickness === null) q.push(`${what}: what ${form === 'hex bar' ? 'across-flats size' : 'side size'} is required?`);
+    if (n.length === null) q.push(`${what}: what length per piece is required?`);
+  }
   if (s.quantity === null) q.push(`${what}: what quantity is required?`);
   else if (s.quantity <= 0 || !Number.isFinite(s.quantity)) q.push(`${what}: the quantity "${s.quantity}" is not valid; how many are required?`);
   else if (!s.quantityUnit) {
     if (!(Number.isInteger(s.quantity) && form && SIZED_FORMS.has(form))) q.push(`${what}: is the quantity ${s.quantity} in pieces, feet or pounds?`);
   }
   for (const [field, origin] of Object.entries(item.provenance)) {
-    if (origin === 'suggestion' && ['grade', 'temper', 'material', 'thickness', 'width', 'length', 'diameter', 'dimensionUnit', 'quantity'].includes(field))
+    if (origin === 'suggestion' && Object.hasOwn(s, field))
       q.push(`${what}: ${field} was inferred, not stated. Please confirm the ${field}.`);
   }
   return q;
@@ -133,7 +146,7 @@ function checks(n: Spec, raw: Spec, p: CatalogProduct): Check[] {
   push('form', n.form === p.form, `${n.form}`, p.form);
   if (n.temper || p.material === 'aluminum') push('temper', (n.temper ?? '').toUpperCase() === (p.temper ?? '').toUpperCase(), `${n.temper ?? 'unspecified'}`, p.temper ?? 'none');
   if (raw.gauge !== null && p.gauge !== null) push('gauge', raw.gauge === p.gauge, `${raw.gauge} ga`, `${p.gauge} ga`);
-  else if (n.thickness !== null || p.thickness !== null) push('thickness', close(n.thickness, p.thickness), `${fmt(n.thickness)} in`, `${fmt(p.thickness)} in`);
+  if (n.thickness !== null || p.thickness !== null) push('thickness', close(n.thickness, p.thickness), `${fmt(n.thickness)} in`, `${fmt(p.thickness)} in`);
   if (n.diameter !== null || p.diameter !== null) push('diameter', close(n.diameter, p.diameter), `${fmt(n.diameter)} in`, `${fmt(p.diameter)} in`);
   if (n.width !== null || p.width !== null) push('width', close(n.width, p.width), `${fmt(n.width)} in`, `${fmt(p.width)} in`);
   if (n.length !== null || p.length !== null) push('length', close(n.length, p.length), `${fmt(n.length)} in`, `${fmt(p.length)} in`);
@@ -193,8 +206,15 @@ function daysBetween(a: string, b: string): number {
 
 /** Integer-cents pricing: unit price = ceil(cost / (1 − margin)), so the target margin is never undercut. */
 export function priceLine(p: CatalogProduct, quantity: number, targetMargin: number, quoteDate: string): Pricing {
-  const bp = Math.round(targetMargin * 10_000);
-  const unitPriceCents = Math.ceil((p.costCents * 10_000) / (10_000 - bp));
+  // Use the decimal margin as an exact rational to avoid floating-point
+  // rounding down the margin or adding a cent to an already integral price.
+  const [decimal, exponent = '0'] = String(targetMargin).split('e');
+  const places = (decimal!.split('.')[1]?.length ?? 0) - Number(exponent);
+  const numerator = BigInt(decimal!.replace('.', '')) * 10n ** BigInt(Math.max(0, -places));
+  const denominator = 10n ** BigInt(Math.max(0, places));
+  const divisor = denominator - numerator;
+  const cost = BigInt(p.costCents) * denominator;
+  const unitPriceCents = Number((cost + divisor - 1n) / divisor);
   const lineTotalCents = unitPriceCents * quantity;
   let benchmarkStatus = 'Missing — no comparable price available';
   let benchmark: number | null = null;
@@ -204,18 +224,22 @@ export function priceLine(p: CatalogProduct, quantity: number, targetMargin: num
     else { benchmarkStatus = `${p.listPrice.synthetic ? 'Synthetic' : 'Sourced'} · comparable per piece`; benchmark = p.listPrice.usd; }
   }
   const benchmarkCents = benchmark === null ? null : Math.round(benchmark * 100);
-  const competitive = benchmarkCents === null || benchmarkStatus.startsWith('Incomparable') ? null : unitPriceCents <= benchmarkCents;
+  const competitive = benchmarkCents === null || /^(Incomparable|Stale|Synthetic)/.test(benchmarkStatus) ? null : unitPriceCents <= benchmarkCents;
   const margin = (unitPriceCents - p.costCents) / unitPriceCents;
   const parts = [
     `Cost ${money(p.costCents)} (synthetic seed) ÷ (1 − ${(targetMargin * 100).toFixed(1)}% margin) = ${money(unitPriceCents)} per piece, rounded up to the cent to preserve margin.`,
   ];
-  if (benchmarkCents !== null) parts.push(competitive ? `At or below the ${money(benchmarkCents)} benchmark.` : `Above the ${money(benchmarkCents)} benchmark — target margin conflicts with market price.`);
+  if (benchmarkCents !== null && competitive !== null) {
+    const difference = Math.abs(unitPriceCents - benchmarkCents);
+    const percentage = benchmarkCents ? (difference / benchmarkCents * 100).toFixed(1) : '0.0';
+    parts.push(`${money(difference)} (${percentage}%) ${competitive ? 'at or below' : 'above'} the ${money(benchmarkCents)} ${p.supplier} list-price benchmark for the same cut size, per piece, retrieved ${p.retrievedDate}. ${competitive ? 'The price preserves the target margin while meeting the sourced comparison.' : 'Target margin conflicts with the sourced comparison.'} Comparison excludes tax and freight.`);
+  } else if (benchmarkCents !== null) parts.push(`${benchmarkStatus} (${money(benchmarkCents)}). Competitiveness unknown; obtain a current supplier price.`);
   else parts.push('No usable benchmark; competitiveness unknown.');
   return {
     cost: p.costCents / 100,
     unitPrice: unitPriceCents / 100,
     lineTotal: lineTotalCents / 100,
-    margin: r4(margin),
+    margin,
     benchmark,
     benchmarkDate: p.listPrice ? p.retrievedDate : null,
     benchmarkSource: p.listPrice ? (p.listPrice.synthetic ? 'Synthetic benchmark seed' : `${p.supplier} list price (${p.url})`) : null,
@@ -276,10 +300,11 @@ export function buildQuote(input: QuoteInputs): Quote {
     if (item.spec.quantity !== null && item.spec.quantity > 0) {
       if (unit === 'pc' || (unit === null && Number.isInteger(item.spec.quantity) && n.form && SIZED_FORMS.has(n.form))) {
         if (Number.isInteger(item.spec.quantity)) qtyPieces = item.spec.quantity;
-        else blockers.push(`Line ${lineNo}: fractional piece quantity ${item.spec.quantity} cannot be quoted.`);
+        else { blockers.push(`Line ${lineNo}: fractional piece quantity ${item.spec.quantity} cannot be quoted.`); questions.push(`Line ${lineNo}: how many whole pieces are required?`); }
         if (unit === null) explanation.push(`Bare count ${item.spec.quantity} of cut-size ${n.form} read as pieces.`);
       } else if (product) {
         blockers.push(`Line ${lineNo}: quantity is in "${unit}"; converting ${unit} to pieces is not supported. Please restate the quantity in pieces.`);
+        questions.push(`Line ${lineNo}: how many cut-size pieces are required? The stated quantity in ${unit} cannot be converted without buyer confirmation.`);
       }
     }
 

@@ -44,7 +44,7 @@ export function itemSize(s: Spec): string {
   const u = s.dimensionUnit ? ` ${s.dimensionUnit}` : '';
   const thick = s.gauge !== null && s.thickness === null ? `${s.gauge} ga` : s.thickness !== null ? num(s.thickness) : null;
   let dims: (string | null)[];
-  if (s.form === 'round bar' || s.form === 'hex bar' || s.form === 'square bar') dims = [s.diameter !== null ? `Ø${num(s.diameter)}` : null, s.length !== null ? num(s.length) : null];
+  if (s.form === 'round bar') dims = [s.diameter !== null ? `Ø${num(s.diameter)}` : null, s.length !== null ? num(s.length) : null];
   else if (s.form === 'tube') dims = [s.diameter !== null ? `Ø${num(s.diameter)}` : null, thick ? `${thick} wall` : null, s.length !== null ? num(s.length) : null];
   else dims = [thick, s.width !== null ? num(s.width) : null, s.length !== null ? num(s.length) : null, s.diameter !== null && s.form !== 'sheet' ? `Ø${num(s.diameter)}` : null];
   const d = dims.filter(Boolean);

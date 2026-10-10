@@ -17,7 +17,10 @@ export async function POST(request: Request): Promise<Response> {
     } catch {
       return errorJson(400, 'BAD_REQUEST', 'Send multipart/form-data with file and/or text, customer and targetMargin.');
     }
-    const files = form.getAll('file').filter((f): f is File => f instanceof File && f.size > 0);
+    const fileFields = form.getAll('file');
+    if (fileFields.some(f => !(f instanceof File))) return errorJson(400, 'BAD_REQUEST', 'Every file field must be an uploaded file.');
+    const files = fileFields as File[];
+    if (files.some(f => f.size === 0)) return errorJson(422, 'EMPTY_DOCUMENT', 'An uploaded file is empty. Remove it or upload the completed RFQ.');
     if (files.length > MAX_FILES) return errorJson(400, 'TOO_MANY_FILES', `Upload at most ${MAX_FILES} files per RFQ.`);
     const text = String(form.get('text') ?? '');
     const customer = String(form.get('customer') ?? '').slice(0, 200);

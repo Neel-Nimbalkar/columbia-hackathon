@@ -27,5 +27,6 @@ export async function validateQuoteForExport(submitted: Quote): Promise<Quote> {
       classification: i.classification ?? null,
     })),
     provider: submitted.provider,
+    warnings: submitted.warnings.filter(w => !/^Line \d+: target margin/.test(w)),
   });
 }

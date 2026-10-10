@@ -21,7 +21,7 @@ At least one of file/text is required. Every source keeps distinct references (p
 {"quote":"<complete Quote object>","itemId":"line-1","response":"6061-T6 please"}
 ```
 
-`corrections`: optional complete nullable `Spec`; blank fields remain null. `included`: optional boolean; explicit exclusion changes readiness and totals. `targetMargin`: optional number (0–0.8); reprices all included lines. The frontend includes the current quote for stateless operation. Validate the payload with `clarifyRequestSchema`. Return a recomputed complete quote. Stable line IDs and original source text must survive. Any conflicts or unknowns are returned as questions/blockers. Recompute inventory across included lines, not only the affected line.
+`corrections`: optional complete nullable `Spec`; blank fields remain null. `included`: optional boolean; explicit exclusion changes readiness and totals. `targetMargin`: optional number (0–0.8); reprices all included lines. The frontend includes the current quote for stateless operation. Validate the payload with `clarifyRequestSchema`. Return a recomputed complete quote. Stable line IDs and original source text must survive. Corrections and answers reclassify the updated specification through Jev with PRISM tracing. Unrelated answers preserve source conflicts. Any conflicts or unknowns are returned as questions/blockers. Recompute inventory across included lines, not only the affected line.
 
 ## Export
 `POST /api/quote/pdf`, application/json: `{quote:<Quote>}`.
@@ -30,6 +30,22 @@ Success: PDF binary with `Content-Type: application/pdf`, `Content-Disposition: 
 
 `validateQuoteForExport` recomputes every match, price, compliance status and the ready flag from the submitted requirements with the server-owned catalog; client-claimed derived fields are discarded. A missing customer, invalid dates or any `exportBlockers` entry returns 422 `QUOTE_BLOCKED` with details; otherwise `generateQuotePdf` renders in memory.
 
+
+## Typed purchase acceptance
+
+`POST /api/quote/accept`, application/json:
+
+```json
+{"quote":"<complete Quote object>","signature":{"name":"Buyer Full Name","email":"buyer@example.com","company":"Quotation Customer","consent":true}}
+```
+
+Success returns a signed PDF binary, `Cache-Control: no-store`, an attachment filename ending `-signed.pdf`, and `X-Quote-Acceptance-Id` / `X-Quote-Accepted-At` headers. The server creates the reference and UTC timestamp. It recomputes commercial content and compares it with the displayed quote before signing; changed totals/specs/prices/terms cause `409 QUOTE_CHANGED` so the buyer must recalculate and review.
+
+The signature requires a trimmed full name, valid email, company matching the quotation customer (case-insensitive), and explicit `consent:true`. Samples and unresolved requirements are blocked. Customer and real ISO issue/expiration dates are required; future-dated and expired quotes cannot be accepted. Expiration is inclusive through the UTC date.
+
+The PDF contains the acceptance statement, typed identity, total, exclusions, server timestamp, reference and commercial-content SHA-256 digest. An embedded UTF-8 `buyer-acceptance.json` retains exact signer text and the commercial snapshot. This is typed acceptance, not a cryptographic identity signature. No purchase order is transmitted or stock reserved; buyers save and send the artifact to request purchase. No signature is retained server-side. The browser retains the signed blob for repeat downloads until quote changes or refresh.
+
+Additional codes: `400 INVALID_SIGNATURE`, `422 SAMPLE_NOT_SIGNABLE`, `422 QUOTE_BLOCKED`, `422 INVALID_QUOTE_DETAILS`, `422 BUYER_MISMATCH`, `422 QUOTE_EXPIRED`, `422 QUOTE_NOT_YET_VALID`, `409 QUOTE_CHANGED`.
 
 ## Errors
 

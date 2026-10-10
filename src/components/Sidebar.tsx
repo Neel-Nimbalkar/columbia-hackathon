@@ -7,7 +7,7 @@ export type View = 'new' | 'workspace' | 'final';
 
 interface Health { status: 'ok' | 'degraded'; providers: { nicrron: { configured: boolean; model: string }; typesafe: { configured: boolean } } }
 
-export function Sidebar({ view, onView, quote }: { view: View; onView: (v: View) => void; quote: Quote | null }) {
+export function Sidebar({ view, onView, quote, disabled = false }: { view: View; onView: (v: View) => void; quote: Quote | null; disabled?: boolean }) {
   const [health, setHealth] = useState<Health | null | 'error'>(null);
   useEffect(() => {
     fetch('/api/health', { signal: AbortSignal.timeout(10_000) }).then((r) => r.json()).then(setHealth, () => setHealth('error'));
@@ -16,7 +16,7 @@ export function Sidebar({ view, onView, quote }: { view: View; onView: (v: View)
   const open = quote ? quote.items.filter((i) => i.included && i.status !== 'Ready').length : 0;
 
   const item = (v: View, label: string, icon: React.ReactNode, opts: { disabled?: boolean; count?: number | null; countTone?: string } = {}) => (
-    <button className={`nav ${view === v ? 'active' : ''}`} disabled={opts.disabled} onClick={() => onView(v)} aria-current={view === v ? 'page' : undefined}>
+    <button className={`nav ${view === v ? 'active' : ''}`} disabled={disabled || opts.disabled} onClick={() => onView(v)} aria-current={view === v ? 'page' : undefined}>
       {icon}<span>{label}</span>
       {opts.count ? <span className={`nav-count ${opts.countTone ?? ''}`}>{opts.count}</span> : null}
     </button>

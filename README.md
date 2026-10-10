@@ -19,7 +19,7 @@ npm ci
 npm run dev
 ```
 
-Open http://localhost:3000. Select one of the three clearly labeled sample workspaces to review the frontend. `Process RFQ` always calls the real backend; this branch has no mock process endpoint. Samples do not make AI calls and do not represent verified supplier offers.
+Open http://localhost:3000. The six sample requests use the real processing pipeline. Configure server-only provider keys from `.env.example`.
 
 ## Using it
 
@@ -50,6 +50,7 @@ Sample files live in `public/samples/` (regenerate with `npx tsx scripts/make-sa
 
 ```sh
 npm run typecheck
+npm test
 npm run build
 npm run start
 ```
@@ -63,3 +64,15 @@ Ship through pull requests only. One Node web service on Render (`render.yaml`):
 ## Data disclosure
 
 Catalog product facts are sourced from Speedy Metals product pages; stock, cost and lead time are synthetic seeds and labeled as such in the UI and PDF. No certificates or origin evidence are invented.
+
+## Typed purchase acceptance
+
+The server recomputes the quote before signing and refuses blocked lines, samples, zero included lines, missing authorization, invalid buyer details, expired/future-dated quotes, mismatched signing companies, or changed commercial content. Expiration dates are inclusive through the stated UTC date. Changes to the quote or signer details clear the authorization/signature in the UI; quote controls are locked while signing.
+
+The signed PDF includes the typed name, email, company, total, server UTC timestamp, acceptance reference, purchase statement, exclusions and a SHA-256 digest of the commercial content. Its embedded `buyer-acceptance.json` preserves the exact UTF-8 signature and quotation snapshot, including names outside the built-in PDF font's character set. Repeat downloads reuse the same signed PDF.
+
+Signing generates a purchase-request artifact. It does not transmit an order, verify signer identity, reserve stock, or confirm supplier fulfillment. The app is stateless: buyers must save the signed PDF and send it to RudCo; refreshing the workspace clears its in-memory signature.
+
+## Live acceptance harness
+
+`npm run harness -- http://localhost:3000` exercises the real AI pipeline, corrections, compliance, repricing, PDFs, and signing. It requires configured Nicrron, Jev and PRISM keys and makes billable provider calls. It generates artifacts without transmitting purchases.

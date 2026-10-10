@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import type { Signature } from '@/lib/shared/acceptance';
 import type { Quote, Spec } from '@/lib/shared/schema';
-import { ApiRequestError, downloadPdf, processRfq, updateQuote } from '@/lib/client/api';
+import { ApiRequestError, downloadPdf, downloadBlob, signQuote, processRfq, updateQuote } from '@/lib/client/api';
 import { Sidebar, type View } from '@/components/Sidebar';
 import { NewRfq, type IntakeDraft } from '@/components/NewRfq';
 import { Workspace } from '@/components/Workspace';
@@ -20,6 +21,7 @@ const HINTS: Record<string, string> = {
 export default function Home() {
   const [view, setView] = useState<View>('new');
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [signed, setSigned] = useState<{ blob: Blob; id: string; signedAt: string; name: string } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [processing, setProcessing] = useState<Processing | null>(null);
@@ -37,8 +39,10 @@ export default function Home() {
     setError({ message: message + (e instanceof ApiRequestError && e.code === 'QUOTE_BLOCKED' ? details : ''), hint: e instanceof ApiRequestError ? HINTS[e.code] : undefined });
   }
 
+  function replaceQuote(q: Quote) { setSigned(null); setQuote(q); }
+
   function open(q: Quote, nextView: View = 'workspace') {
-    setQuote(q);
+    replaceQuote(q);
     const firstIssue = q.items.find((i) => i.included && i.status !== 'Ready');
     setSelected((firstIssue ?? q.items[0])?.id ?? null);
     setView(nextView);
@@ -69,7 +73,7 @@ export default function Home() {
     setError(null);
     try {
       const next = await updateQuote({ quote, itemId, ...input });
-      setQuote(next);
+      replaceQuote(next);
       return true;
     } catch (e) {
       fail(e);
@@ -94,9 +98,20 @@ export default function Home() {
   }
 
 
+  async function accept(signature: Signature) {
+    if (!quote || busy) return;
+    setBusy('Signing quote'); setError(null);
+    try {
+      const result = await signQuote(quote, signature);
+      setSigned({ ...result, name: signature.name });
+      downloadBlob(result.blob, `${quote.id}-signed.pdf`);
+      setNotice('Signed PDF downloaded. Save it and send it to RudCo to request purchase.');
+    } catch (e) { fail(e); } finally { setBusy(null); }
+  }
+
   return (
     <div className="shell">
-      <Sidebar view={view} onView={(v) => { setView(v); setError(null); }} quote={quote} />
+      <Sidebar disabled={!!busy || !!processing} view={view} onView={(v) => { if (busy || processing) return; setView(v); setError(null); }} quote={quote} />
       <div className="main-col">
         <main ref={mainRef}>
           {error && (
@@ -118,7 +133,7 @@ export default function Home() {
               onNew={() => setView('new')}
             />
           )}
-          {view === 'final' && <FinalQuote quote={quote} busy={busy} onEdit={setQuote} onExport={exportPdf} onBack={(id) => { if (id) setSelected(id); setView('workspace'); }} onNew={() => setView('new')} />}
+          {view === 'final' && <FinalQuote quote={quote} busy={busy} onEdit={replaceQuote} onExport={exportPdf} onSign={accept} signed={signed} onDownloadSigned={() => { if (quote && signed) downloadBlob(signed.blob, `${quote.id}-signed.pdf`); }} onBack={(id) => { if (busy) return; if (id) setSelected(id); setView('workspace'); }} onNew={() => setView('new')} />}
         </main>
       </div>
     </div>

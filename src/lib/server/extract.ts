@@ -143,7 +143,7 @@ async function extractChunk(lines: Line[], sources: ParsedSource[], sessionId: s
       const mid = Math.ceil(lines.length / 2);
       const [a, b] = await Promise.all([
         extractChunk(lines.slice(0, mid), sources, sessionId, part, depth + 1),
-        extractChunk(lines.slice(Math.max(0, mid - 4)), sources, sessionId, part, depth + 1),
+        extractChunk(lines.slice(Math.max(1, mid - Math.min(4, mid - 1))), sources, sessionId, part, depth + 1),
       ]);
       return { extraction: { customer: a.extraction.customer ?? b.extraction.customer, rfqReference: a.extraction.rfqReference ?? b.extraction.rfqReference, items: [...a.extraction.items, ...b.extraction.items] }, model: a.model };
     }
@@ -216,12 +216,12 @@ export function toSpec(raw: RawItem, provenance: Provenance = {}): { spec: Spec;
   const g = normalizeGrade(raw.grade);
   if (g.grade) { spec.grade = g.grade; mark('grade', squash(g.grade) !== squash(raw.grade ?? '')); }
   const temper = normalizeTemper(raw.temper) ?? g.temper;
-  if (temper) { spec.temper = temper; mark('temper', !raw.temper); }
+  if (temper) { spec.temper = temper; mark('temper', !raw.temper); if (!raw.temper && inferred.has('grade')) prov.temper = 'suggestion'; }
 
   const mat = normalizeMaterial(raw.material);
   const gradeMat = materialForGrade(spec.grade);
   if (mat) { spec.material = mat; mark('material', squash(mat) !== squash(raw.material ?? '')); }
-  else if (gradeMat) { spec.material = gradeMat; prov.material = 'normalized'; } // implied by a stated grade, e.g. "6061"
+  else if (gradeMat) { spec.material = gradeMat; prov.material = inferred.has('grade') ? 'suggestion' : 'normalized'; } // implied by a stated grade, e.g. "6061"
   else if (raw.material) { spec.material = raw.material.trim().toLowerCase(); mark('material', false); }
 
   const form = normalizeForm(raw.form);
@@ -232,7 +232,7 @@ export function toSpec(raw: RawItem, provenance: Provenance = {}): { spec: Spec;
   // Dimensions: keep the customer's unit when it is consistent; convert mixed units to inches.
   const dims = (['thickness', 'width', 'length', 'diameter', 'tolerance'] as const)
     .map((k) => ({ k, value: parseMeasure(raw[k]?.value ?? null), unit: normalizeUnit(raw[k]?.unit ?? null) }))
-    .filter((d) => d.value !== null);
+    .filter((d) => d.value !== null && d.value <= 100_000 && r4(d.value) > 0);
   const units = new Set(dims.map((d) => d.unit));
   if (dims.length) {
     if (units.size === 1) {
@@ -244,17 +244,19 @@ export function toSpec(raw: RawItem, provenance: Provenance = {}): { spec: Spec;
       for (const d of dims) { spec[d.k] = r4(toInches(d.value!, d.unit as LengthUnit)); mark(d.k, d.unit !== 'in'); }
       prov.dimensionUnit = 'normalized';
     } else {
-      // Some dimensions have a unit and some don't: keep values, leave the unit unknown.
-      spec.dimensionUnit = null;
-      for (const d of dims) { spec[d.k] = r4(d.value!); mark(d.k, false); }
+      // Preserve known dimensions in inches; ask for the missing dimensions
+      // instead of relabeling a mixture of known and unknown units later.
+      spec.dimensionUnit = 'in';
+      for (const d of dims) if (d.unit) { spec[d.k] = r4(toInches(d.value!, d.unit)); mark(d.k, d.unit !== 'in'); }
+      prov.dimensionUnit = 'normalized';
     }
   }
 
   const gauge = typeof raw.gauge === 'number' ? raw.gauge : parseMeasure(raw.gauge);
   if (gauge !== null && Number.isInteger(gauge) && gauge >= 1 && gauge <= 40) { spec.gauge = gauge; mark('gauge', false); }
 
-  const qty = typeof raw.quantity === 'number' ? raw.quantity : parseMeasure(raw.quantity?.replace(/[^\d./-]/g, '') ?? null);
-  if (qty !== null) { spec.quantity = qty; mark('quantity', false); }
+  const qty = parseMeasure(raw.quantity);
+  if (qty !== null && qty <= 100_000) { spec.quantity = qty; mark('quantity', false); }
   if (raw.quantityUnit) {
     const u = normalizeQtyUnit(raw.quantityUnit);
     spec.quantityUnit = u ?? raw.quantityUnit.trim();
@@ -264,11 +266,14 @@ export function toSpec(raw: RawItem, provenance: Provenance = {}): { spec: Spec;
   const certs: string[] = [];
   let mtr = raw.mtrRequested;
   for (const c of raw.certifications) {
-    if (MTR_RE.test(c) && !/dfars|as9100|iso|nadcap|itar/i.test(c)) mtr = true;
+    if (MTR_RE.test(c) && !/dfars|as9100|iso|nadcap|itar/i.test(c)) {
+      mtr = true;
+      if (/10204|3\.1|3\.2/i.test(c)) certs.push(c.trim());
+    }
     else if (c.trim()) certs.push(c.trim());
   }
   spec.mtr = mtr;
-  if (mtr !== null) mark('mtr', false);
+  if (mtr !== null) { mark('mtr', false); if (inferred.has('mtrRequested')) prov.mtr = 'suggestion'; }
   spec.certifications = certs;
   if (certs.length) mark('certifications', false);
   spec.standards = [...new Set(raw.standards.map(normalizeStandard).filter(Boolean))];
@@ -309,6 +314,7 @@ function spanRef(segments: Segment[], i: number, j: number): string {
  */
 export function anchorToSource(raw: RawItem, segments: Segment[]): Anchor | null {
   const want = tight(raw.original);
+  if (want.length < 3) return null;
   const tights = segments.map((s) => tight(s.text));
   const byRef = segments.findIndex((s) => s.ref === raw.ref.trim());
   const windowFrom = (i: number): Anchor | null => {

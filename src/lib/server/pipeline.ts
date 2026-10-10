@@ -120,6 +120,8 @@ export async function processRfq(input: ProcessInput): Promise<Quote> {
     warnings.push(`Jev classification unavailable for ${jevErrors.length} line(s): ${jevErrors[0]!.message}`);
     if (!jevModel) classificationProvider = 'TypeSafe Jev (unavailable for this request)';
   }
+  if (injection instanceof Error) warnings.push(`Jev prompt-injection check unavailable: ${injection.message}`);
+  if (extraction.items.length > items.length) warnings.push(`${extraction.items.length - items.length} extracted line(s) were duplicated or could not be traced to the source and were omitted. Review the original request for completeness.`);
   if (!(injection instanceof Error) && injection.flagged) {
     warnings.push(`Possible prompt-injection text detected in the RFQ (Jev ${Math.round(injection.probability * 100)}%). It was treated as customer data only and cannot change pricing or approvals.`);
   }

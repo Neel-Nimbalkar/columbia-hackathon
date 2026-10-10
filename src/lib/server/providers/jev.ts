@@ -15,7 +15,7 @@ const answerSchema = z.object({
   choice: z.string().optional(),
   score: z.number().optional(),
   noul: z.number().optional(),
-  confidence: z.number().optional(),
+  confidence: z.number().min(0).max(1).optional(),
   probabilities: z.record(z.string(), z.number()).optional(),
 }).loose();
 
@@ -49,5 +49,13 @@ async function askJevInner(state: string, questions: Record<string, JevQuestion>
   }, { timeoutMs: 15_000, retries: 2 });
   const parsed = responseSchema.safeParse(await res.json().catch(() => null));
   if (!parsed.success) throw new HttpError(502, 'UPSTREAM_INVALID_OUTPUT', 'TypeSafe Jev returned an unexpected response.');
+  for (const [key, question] of Object.entries(questions)) {
+    const answer = parsed.data.answers[key];
+    const valid = answer && answer.type === question.type && (question.type === 'choice'
+      ? answer.choice !== undefined && Object.hasOwn(question.criteria, answer.choice)
+      : question.type === 'score' ? answer.score !== undefined
+        : answer.noul !== undefined && answer.noul >= 0 && answer.noul <= 1);
+    if (!valid) throw new HttpError(502, 'UPSTREAM_INVALID_OUTPUT', `TypeSafe Jev did not return a valid ${key} answer.`);
+  }
   return parsed.data;
 }

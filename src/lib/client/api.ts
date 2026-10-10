@@ -1,3 +1,4 @@
+import type { Signature } from '../shared/acceptance';
 import { quoteSchema, type Quote, type Spec } from '../shared/schema';
 
 /** Keeps the server's error code/status so the UI can explain e.g. OCR_REQUIRED or RATE_LIMITED. */
@@ -100,4 +101,25 @@ export async function fetchCatalog(): Promise<{ supplier: { name: string; site: 
   const response = await send('/api/catalog', { signal: AbortSignal.timeout(20_000) });
   if (!response.ok) return failure(response);
   return response.json();
+}
+
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url; anchor.download = filename;
+  document.body.append(anchor); anchor.click(); anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export async function signQuote(quote: Quote, signature: Signature): Promise<{ blob: Blob; id: string; signedAt: string }> {
+  const response = await send('/api/quote/accept', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ quote, signature }), signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) return failure(response);
+  if (!response.headers.get('content-type')?.includes('application/pdf')) throw new ApiRequestError('Signing did not return a PDF.', 'INVALID_RESPONSE', response.status);
+  const id = response.headers.get('X-Quote-Acceptance-Id');
+  const signedAt = response.headers.get('X-Quote-Accepted-At');
+  if (!id || !signedAt) throw new ApiRequestError('Signing did not return an acceptance record.', 'INVALID_RESPONSE', response.status);
+  return { blob: await response.blob(), id, signedAt };
 }
