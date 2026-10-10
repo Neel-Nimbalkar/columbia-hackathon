@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { DENSITIES, GAUGE_TABLES, MM_PER_IN, SHAPES, crossSection, nearestFraction, parseFraction, type Shape } from '@/lib/shared/metals';
+import { marginPriceCents } from '@/lib/shared/pricing';
 import { money, pct } from '@/lib/client/format';
 import { PageHeader, Segmented } from './ui';
 
@@ -52,7 +53,8 @@ function Weight() {
   const lenRaw = parseFraction(length);
   const lenIn = lenRaw === null ? null : lengthUnit === 'in' ? lenRaw : lengthUnit === 'ft' ? lenRaw * 12 : lengthUnit === 'mm' ? lenRaw / MM_PER_IN : (lenRaw * 1000) / MM_PER_IN;
   const area = missing.length ? null : crossSection(shape, values);
-  const q = Math.max(0, Math.floor(Number(qty) || 0));
+  const q = Number(qty);
+  const quantityValid = qty.trim() !== '' && Number.isSafeInteger(q) && q > 0;
   const each = area !== null && lenIn !== null ? area * lenIn * density.lbPerIn3 : null;
   const perFt = area !== null ? area * 12 * density.lbPerIn3 : null;
   const p = Number(price);
@@ -80,8 +82,8 @@ function Weight() {
         </div>
       </section>
       <section className="card calc-out">
-        {each === null ? (
-          <p className="muted">{missing.length ? `Enter ${missing.join(', ').toLowerCase()}.` : lenIn === null ? 'Enter a length.' : 'Those dimensions are not a valid section (e.g. wall thicker than half the width).'}</p>
+        {each === null || !quantityValid ? (
+          <p className="muted">{!quantityValid ? 'Enter a positive whole quantity.' : missing.length ? `Enter ${missing.join(', ').toLowerCase()}.` : lenIn === null ? 'Enter a length.' : 'Those dimensions are not a valid section (e.g. wall thicker than half the width).'}</p>
         ) : (
           <>
             <div className="result-hero"><span>Total weight</span><strong>{r(each * q, 2)} lb</strong><small>{r((each * q) / LB_PER_KG, 2)} kg · {q} pc</small></div>
@@ -185,9 +187,12 @@ function Margin() {
   const [input, setInput] = useState('20');
   const [bench, setBench] = useState('');
   const c = Number(cost), x = Number(input), b = Number(bench);
-  const valid = Number.isFinite(c) && c > 0 && Number.isFinite(x) && x >= 0 && (mode !== 'margin' || x < 100);
+  const valid = cost.trim() !== '' && input.trim() !== '' && Number.isFinite(c) && c > 0 && c <= 1e9 && Number.isFinite(x) && x >= 0 && (mode !== 'margin' || x < 100);
   let price: number | null = null;
-  if (valid) price = mode === 'margin' ? Math.ceil((c * 100) / (1 - x / 100)) / 100 : mode === 'markup' ? Math.round(c * (1 + x / 100) * 100) / 100 : x;
+  if (valid) {
+    try { price = mode === 'margin' ? marginPriceCents(Math.round(c * 100), x / 100) / 100 : mode === 'markup' ? Math.round(c * (1 + x / 100) * 100) / 100 : x; } catch { price = null; }
+    if (price !== null && (!Number.isFinite(price) || !Number.isSafeInteger(Math.round(price * 100)))) price = null;
+  }
   const margin = price ? (price - c) / price : null;
   const markup = price ? (price - c) / c : null;
   return (
@@ -206,9 +211,9 @@ function Margin() {
             <div className="result-hero"><span>Selling price</span><strong>{money(price)}</strong><small>{pct(margin)} margin · {pct(markup!)} markup</small></div>
             <dl className="result-list">
               <div><dt>Gross profit</dt><dd>{money(price - c)}</dd></div>
-              {bench.trim() !== '' && b > 0 && <>
+              {bench.trim() !== '' && Number.isFinite(b) && b > 0 && <>
                 <div><dt>vs benchmark</dt><dd className={price > b ? 'text-amber' : 'text-green'}>{price > b ? `${money(price - b)} above` : `${money(b - price)} below`}</dd></div>
-                <div><dt>Max margin at benchmark</dt><dd>{b > c ? pct(1 - c / b) : 'Cost is above benchmark'}</dd></div>
+                <div><dt>Max margin at benchmark</dt><dd>{b >= c ? pct(1 - c / b) : 'Cost is above benchmark'}</dd></div>
               </>}
             </dl>
             <p className="muted small-note">Margin is profit ÷ price; markup is profit ÷ cost. A 20% margin is a 25% markup. Quotes use margin, rounded up to the cent so the floor is never undercut.</p>

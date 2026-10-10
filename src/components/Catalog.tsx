@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Boxes, ExternalLink, Loader2, Plus, Search } from 'lucide-react';
 import { fetchCatalog, type CatalogItem } from '@/lib/client/api';
+import { marginPriceCents } from '@/lib/shared/pricing';
 import { money, pct, titleCase } from '@/lib/client/format';
 import { Empty, Message, Modal, PageHeader } from './ui';
 
@@ -23,7 +24,7 @@ function rfqLine(p: CatalogItem, qty: number): string {
   return `${qty} pcs ${catalogName(p)}, ${size}${p.finish ? `, ${p.finish} finish` : ''}`;
 }
 
-const priceAt = (cost: number, margin: number) => Math.ceil((cost * 100) / (1 - margin)) / 100;
+const priceAt = (cost: number, margin: number) => marginPriceCents(Math.round(cost * 100), margin) / 100;
 
 export function Catalog({ onAddToRfq, draftLines, onGoToDraft }: { onAddToRfq: (line: string) => void; draftLines: number; onGoToDraft: () => void }) {
   const [data, setData] = useState<Awaited<ReturnType<typeof fetchCatalog>> | null>(null);
@@ -39,7 +40,8 @@ export function Catalog({ onAddToRfq, draftLines, onGoToDraft }: { onAddToRfq: (
   const load = () => { setError(null); fetchCatalog().then(setData, (e: Error) => setError(e.message)); };
   useEffect(load, []);
 
-  const m = Math.min(0.8, Math.max(0, (Number(margin) || 0) / 100));
+  const marginValid = margin.trim() !== '' && Number.isFinite(Number(margin)) && Number(margin) >= 0 && Number(margin) <= 80;
+  const m = marginValid ? Number(margin) / 100 : .2;
   const rows = useMemo(() => {
     if (!data) return [];
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -80,6 +82,7 @@ export function Catalog({ onAddToRfq, draftLines, onGoToDraft }: { onAddToRfq: (
       />
       {error && <Message tone="error">{error} <button className="link" onClick={load}>Retry</button></Message>}
       {!data && !error && <section className="card"><Empty icon={<Loader2 size={20} className="spin" />} title="Loading catalog" /></section>}
+      {!marginValid && <Message tone="warning">Enter a margin from 0 to 80%. Price previews use 20% until corrected.</Message>}
       {data && (
         <section className="card">
           <div className="card-head table-tools">

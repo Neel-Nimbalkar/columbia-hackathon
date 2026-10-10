@@ -5,6 +5,7 @@
  * blockers, status, totals and readiness. Process, clarify and export all
  * call this, so client-supplied derived fields are never trusted.
  */
+import { marginPriceCents } from '../shared/pricing';
 import type { Compliance, ExtractedItem, Pricing, Quote, QuoteItem, Spec } from '../shared/schema';
 import { CATALOG, CATALOG_DISCLOSURE, type CatalogProduct } from './catalog';
 import { gaugeToInches, r4, specDimsInches } from './normalize';
@@ -206,15 +207,7 @@ function daysBetween(a: string, b: string): number {
 
 /** Integer-cents pricing: unit price = ceil(cost / (1 − margin)), so the target margin is never undercut. */
 export function priceLine(p: CatalogProduct, quantity: number, targetMargin: number, quoteDate: string): Pricing {
-  // Use the decimal margin as an exact rational to avoid floating-point
-  // rounding down the margin or adding a cent to an already integral price.
-  const [decimal, exponent = '0'] = String(targetMargin).split('e');
-  const places = (decimal!.split('.')[1]?.length ?? 0) - Number(exponent);
-  const numerator = BigInt(decimal!.replace('.', '')) * 10n ** BigInt(Math.max(0, -places));
-  const denominator = 10n ** BigInt(Math.max(0, places));
-  const divisor = denominator - numerator;
-  const cost = BigInt(p.costCents) * denominator;
-  const unitPriceCents = Number((cost + divisor - 1n) / divisor);
+  const unitPriceCents = marginPriceCents(p.costCents, targetMargin);
   const lineTotalCents = unitPriceCents * quantity;
   let benchmarkStatus = 'Missing — no comparable price available';
   let benchmark: number | null = null;

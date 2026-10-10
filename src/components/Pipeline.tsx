@@ -1,10 +1,10 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, BarChart3, Download, ExternalLink, Mail, Search, Trash2 } from 'lucide-react';
+import { ArrowRight, BarChart3, Download, ExternalLink, Search, Trash2 } from 'lucide-react';
 import type { Quote } from '@/lib/shared/schema';
 import { compactMoney, duration, money, pct, quoteMargin, relativeDate } from '@/lib/client/format';
 import { LOSS_REASONS, dealState, ledgerCsv, removeEntry, setNote, setStatus, type DealStatus, type LedgerEntry, type LossReason } from '@/lib/client/ledger';
-import { Badge, CopyButton, Empty, Modal, PageHeader, Segmented } from './ui';
+import { Badge, Empty, PageHeader, Segmented } from './ui';
 
 type Range = '30' | '90' | 'all';
 type Filter = 'all' | DealStatus | 'expired';
@@ -42,7 +42,6 @@ export function Pipeline({ ledger, currentId, onOpen, onNew }: { ledger: LedgerE
   const [range, setRange] = useState<Range>('90');
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
-  const [followUp, setFollowUp] = useState<LedgerEntry | null>(null);
   const today = new Date().toISOString().slice(0, 10);
   const now = Date.now();
 
@@ -51,10 +50,10 @@ export function Pipeline({ ledger, currentId, onOpen, onNew }: { ledger: LedgerE
   if (!ledger.length) {
     return (
       <>
-        <PageHeader title="Pipeline" subtitle="Quoted value, win rate and follow-ups for every RFQ you process." />
+        <PageHeader title="Pipeline" subtitle="Saved quotes and manually recorded outcomes." />
         <section className="card">
           <Empty icon={<BarChart3 size={22} />} title="No quotes yet" action={<button className="button primary" onClick={onNew}>Process an RFQ<ArrowRight size={14} /></button>}>
-            Each RFQ you process is logged here automatically, in this browser only. Download a quote PDF to mark it sent, then record won or lost to track conversion.
+            Each RFQ you process is logged here automatically, in this browser only. Mark a quote sent after sending it, then record won or lost.
           </Empty>
         </section>
       </>
@@ -74,11 +73,6 @@ export function Pipeline({ ledger, currentId, onOpen, onNew }: { ledger: LedgerE
   const aiTime = median(inRange.map((e) => e.processingMs));
   const lines = inRange.reduce((s, e) => s + e.firstPassLines, 0);
   const firstPass = lines ? inRange.reduce((s, e) => s + e.firstPassReady, 0) / lines : null;
-
-  const followUps = ledger
-    .filter((e) => state(e) === 'sent' && (Date.parse(e.quote.expires) - now < 7 * DAY || now - Date.parse(e.sentAt ?? e.createdAt) > 3 * DAY))
-    .sort((a, b) => a.quote.expires.localeCompare(b.quote.expires))
-    .slice(0, 5);
 
   const shown = ledger
     .filter((e) => filter === 'all' || state(e) === filter)
@@ -143,22 +137,6 @@ export function Pipeline({ ledger, currentId, onOpen, onNew }: { ledger: LedgerE
           {quoted.length ? <BarList rows={Object.entries(quoted.reduce<Record<string, number>>((m, e) => { const k = e.customer || 'Unnamed'; m[k] = (m[k] ?? 0) + e.quote.total; return m; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([label, value]) => ({ label, value }))} format={compactMoney} />
             : <p className="muted chart-empty">Send a quote to rank customers.</p>}
         </section>
-        <section className="card chart-card">
-          <div className="card-head"><h2>Follow up</h2><span className="muted">Sent, expiring or quiet</span></div>
-          {followUps.length ? (
-            <ul className="follow">
-              {followUps.map((e) => {
-                const days = Math.ceil((Date.parse(e.quote.expires) - now) / DAY);
-                return (
-                  <li key={e.id}>
-                    <div><strong>{e.customer || e.id}</strong><small>{money(e.quote.total)} · {days < 0 ? 'expired' : days === 0 ? 'expires today' : `expires in ${days} d`}</small></div>
-                    <button className="button secondary small" onClick={() => setFollowUp(e)}><Mail size={13} />Follow up</button>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : <p className="muted chart-empty">Nothing needs a nudge right now.</p>}
-        </section>
       </div>
 
       <section className="card">
@@ -179,7 +157,6 @@ export function Pipeline({ ledger, currentId, onOpen, onNew }: { ledger: LedgerE
           </table>
         </div>
       </section>
-      {followUp && <FollowUpEmail e={followUp} onClose={() => setFollowUp(null)} />}
     </>
   );
 }
@@ -326,27 +303,5 @@ function BarList({ rows, format }: { rows: { label: string; value: number; sub?:
         </li>
       ))}
     </ul>
-  );
-}
-
-function FollowUpEmail({ e, onClose }: { e: LedgerEntry; onClose: () => void }) {
-  const q = e.quote;
-  const subject = `Following up: quotation ${q.id}${q.rfqReference ? ` (RFQ ${q.rfqReference})` : ''}`;
-  const body = [
-    `Hi${e.customer ? ` ${e.customer} team` : ''},`,
-    '',
-    `Following up on quotation ${q.id}${q.rfqReference ? ` for your RFQ ${q.rfqReference}` : ''} — ${money(q.total)} for ${q.items.filter((i) => i.included).length} line${q.items.filter((i) => i.included).length === 1 ? '' : 's'}, valid through ${q.expires}.`,
-    '',
-    'Stock is allocated on order, so let us know if you’d like to proceed or if anything needs adjusting (quantities, lengths, documentation).',
-    '',
-    'Best regards,',
-  ].join('\n');
-  return (
-    <Modal title="Follow-up email" onClose={onClose} footer={<>
-      <CopyButton text={`Subject: ${subject}\n\n${body}`} label="Copy email" />
-      <a className="button primary" href={`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}><Mail size={14} />Open in mail app</a>
-    </>}>
-      <div className="email-preview"><div className="email-subject"><span>Subject</span>{subject}</div><pre>{body}</pre></div>
-    </Modal>
   );
 }

@@ -5,6 +5,8 @@
  * rep can reopen it, mark it sent / won / lost and see conversion over time.
  */
 import { useSyncExternalStore } from 'react';
+import { z } from 'zod';
+import { quoteSchema } from '../shared/schema';
 import type { Quote } from '../shared/schema';
 
 export type DealStatus = 'draft' | 'sent' | 'won' | 'lost';
@@ -33,6 +35,13 @@ export interface LedgerEntry {
   quote: Quote;
 }
 
+const ledgerSchema = z.object({
+  id: z.string(), customer: z.string(), rfqReference: z.string().nullable(), source: z.string(),
+  createdAt: z.iso.datetime(), processingMs: z.number().nonnegative(), firstPassReady: z.number().int().nonnegative(), firstPassLines: z.number().int().nonnegative(),
+  readyAt: z.iso.datetime().nullable(), status: z.enum(['draft', 'sent', 'won', 'lost']),
+  sentAt: z.iso.datetime().nullable(), decidedAt: z.iso.datetime().nullable(), lossReason: z.enum(LOSS_REASONS).nullable(), note: z.string(), quote: quoteSchema,
+}).refine(e => e.id === e.quote.id);
+
 const KEY = 'rudco.ledger.v1';
 const MAX_ENTRIES = 250;
 let cache: LedgerEntry[] | null = null;
@@ -44,7 +53,7 @@ function read(): LedgerEntry[] {
   try {
     const raw = localStorage.getItem(KEY);
     const parsed = raw ? (JSON.parse(raw) as LedgerEntry[]) : [];
-    cache = Array.isArray(parsed) ? parsed.filter((e) => e && typeof e.id === 'string' && e.quote) : [];
+    cache = Array.isArray(parsed) ? parsed.slice(0, MAX_ENTRIES).flatMap(e => { const result = ledgerSchema.safeParse(e); return result.success ? [result.data] : []; }) : [];
   } catch {
     cache = [];
   }
@@ -70,7 +79,7 @@ function write(next: LedgerEntry[]): void {
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
-  const onStorage = (e: StorageEvent) => { if (e.key === KEY) { cache = null; listener(); } };
+  const onStorage = (e: StorageEvent) => { if (e.key === KEY || e.key === null) { cache = null; listener(); } };
   window.addEventListener('storage', onStorage);
   return () => { listeners.delete(listener); window.removeEventListener('storage', onStorage); };
 }
@@ -111,7 +120,7 @@ export function recordUpdate(quote: Quote): void {
   if (i < 0) return;
   const prev = list[i]!;
   const next = [...list];
-  next[i] = { ...prev, customer: quote.customer, quote, readyAt: prev.readyAt ?? (quote.ready ? new Date().toISOString() : null) };
+  next[i] = { ...prev, customer: quote.customer, rfqReference: quote.rfqReference ?? null, quote, readyAt: prev.readyAt ?? (quote.ready ? new Date().toISOString() : null) };
   write(next);
 }
 
@@ -141,13 +150,14 @@ export function dealState(e: LedgerEntry, today = new Date().toISOString().slice
 
 export function ledgerCsv(entries: LedgerEntry[]): string {
   const esc = (v: unknown) => {
-    const s = v === null || v === undefined ? '' : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    const raw = v === null || v === undefined ? '' : String(v);
+    const s = /^[\s]*[=+@-]/.test(raw) || /^[\t\r]/.test(raw) ? `'${raw}` : raw;
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const head = ['Quote', 'Customer', 'Customer RFQ', 'Created', 'Status', 'Loss reason', 'Lines', 'Ready lines', 'Total USD', 'Target margin', 'Expires', 'Sent', 'Decided', 'Note'];
   const rows = entries.map((e) => [
     e.id, e.customer, e.rfqReference, e.createdAt.slice(0, 10), dealState(e), e.lossReason, e.quote.items.length,
-    e.quote.items.filter((i) => i.status === 'Ready').length, e.quote.total.toFixed(2), e.quote.targetMargin, e.quote.expires,
+    e.quote.items.filter((i) => i.included && i.status === 'Ready').length, e.quote.total.toFixed(2), e.quote.targetMargin, e.quote.expires,
     e.sentAt?.slice(0, 10), e.decidedAt?.slice(0, 10), e.note,
   ].map(esc).join(','));
   return [head.join(','), ...rows].join('\n');

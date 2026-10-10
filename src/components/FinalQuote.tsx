@@ -1,11 +1,11 @@
 'use client';
 import { isIsoDate } from '@/lib/shared/dates';
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Download, Inbox, Loader2, Mail } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Download, Inbox, Loader2 } from 'lucide-react';
 import { ACCEPTANCE_STATEMENT, QUOTE_TERMS, signatureSchema, type Signature } from '@/lib/shared/acceptance';
 import type { Quote } from '@/lib/shared/schema';
 import { bareQuestion, isBlocked, itemSize, itemTitle, money } from '@/lib/client/format';
-import { Badge, CopyButton, Empty, Modal, PageHeader } from './ui';
+import { Badge, Empty, PageHeader } from './ui';
 
 export function FinalQuote({ quote, busy, onEdit, onExport, onSign, signed, onDownloadSigned, onBack, onNew }: {
   quote: Quote | null;
@@ -18,7 +18,6 @@ export function FinalQuote({ quote, busy, onEdit, onExport, onSign, signed, onDo
   onBack: (itemId?: string) => void;
   onNew: () => void;
 }) {
-  const [coverOpen, setCoverOpen] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [consent, setConsent] = useState(false);
@@ -42,7 +41,7 @@ export function FinalQuote({ quote, busy, onEdit, onExport, onSign, signed, onDo
     <>
       <PageHeader
         title="Your quote"
-        subtitle="Check the preview, then download and send it."
+        subtitle="Check the preview, then download your PDF."
         actions={<button className="button secondary" disabled={!!busy} onClick={() => onBack()}><ArrowLeft size={14} />Back to review</button>}
       />
       <div className="final">
@@ -91,7 +90,7 @@ export function FinalQuote({ quote, busy, onEdit, onExport, onSign, signed, onDo
           <section className={`card export ${canExport ? 'ok' : 'blocked'}`}>
             <div className="export-state">
               {canExport ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
-              <strong>{canExport ? 'Ready to send' : `${blocked.length + headerIssues.length} item${blocked.length + headerIssues.length === 1 ? '' : 's'} to resolve`}</strong>
+              <strong>{canExport ? 'Ready to download' : `${blocked.length + headerIssues.length} item${blocked.length + headerIssues.length === 1 ? '' : 's'} to resolve`}</strong>
             </div>
             <dl className="export-facts">
               <div><dt>Lines quoted</dt><dd>{included.length}{excluded.length ? ` (+${excluded.length} excluded)` : ''}</dd></div>
@@ -100,7 +99,6 @@ export function FinalQuote({ quote, busy, onEdit, onExport, onSign, signed, onDo
             <button className="button primary block" disabled={!canExport || !!busy} onClick={() => onExport(quote)}>
               {busy === 'Generating PDF' ? <Loader2 size={15} className="spin" /> : <Download size={15} />}Download PDF
             </button>
-            <button className="button secondary block" disabled={!canExport || !!busy} onClick={() => setCoverOpen(true)}><Mail size={14} />Draft cover email</button>
           </section>
 
           <details className="card signing" open={signed ? true : undefined}>
@@ -138,36 +136,6 @@ export function FinalQuote({ quote, busy, onEdit, onExport, onSign, signed, onDo
           )}
         </aside>
       </div>
-      {coverOpen && <CoverEmail quote={quote} onClose={() => setCoverOpen(false)} />}
     </>
-  );
-}
-
-function CoverEmail({ quote, onClose }: { quote: Quote; onClose: () => void }) {
-  const included = quote.items.filter((i) => i.included);
-  const excluded = quote.items.filter((i) => !i.included);
-  const subject = `Quotation ${quote.id}${quote.rfqReference ? ` for RFQ ${quote.rfqReference}` : ''}`;
-  const body = [
-    `Hi${quote.customer ? ` ${quote.customer} team` : ''},`,
-    '',
-    `Please find attached quotation ${quote.id}${quote.rfqReference ? ` for your RFQ ${quote.rfqReference}` : ''}, valid through ${quote.expires}.`,
-    '',
-    ...included.map((i, n) => `${n + 1}. ${itemTitle(i.normalized)}, ${itemSize(i.normalized)} — ${i.spec.quantity} ${i.pricing?.unit ?? 'pc'} @ ${money(i.pricing?.unitPrice ?? 0)} = ${money(i.pricing?.lineTotal ?? 0)} (${i.leadTime ?? 'lead time TBC'})`),
-    '',
-    `Total: ${money(quote.total)} USD, excluding freight and applicable taxes.`,
-    ...(excluded.length ? ['', `Not included in this quote: ${excluded.map((i) => `"${i.original.replace(/\s*\|\s*/g, ' ').slice(0, 80)}"`).join('; ')}.`] : []),
-    '',
-    'Let us know if you have any questions or would like to place the order.',
-    '',
-    'Best regards,',
-  ].join('\n');
-  return (
-    <Modal title="Cover email" onClose={onClose} wide footer={<>
-      <span className="muted">Attach the downloaded PDF.</span>
-      <CopyButton text={`Subject: ${subject}\n\n${body}`} label="Copy email" />
-      <a className="button primary" href={`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}><Mail size={14} />Open in mail app</a>
-    </>}>
-      <div className="email-preview"><div className="email-subject"><span>Subject</span>{subject}</div><pre>{body}</pre></div>
-    </Modal>
   );
 }

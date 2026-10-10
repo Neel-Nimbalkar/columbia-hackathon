@@ -1,9 +1,9 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRight, Check, CheckCircle2, CircleHelp, FileText, Inbox, Loader2, Mail, Pencil, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Check, CheckCircle2, CircleHelp, FileText, Inbox, Loader2, Pencil, ShieldCheck } from 'lucide-react';
 import type { Quote, QuoteItem, Spec } from '@/lib/shared/schema';
 import { bareQuestion, isBlocked, itemSize, itemTitle, money, pct, qtyLabel } from '@/lib/client/format';
-import { Badge, CopyButton, Empty, Message, Modal, PageHeader } from './ui';
+import { Badge, Empty, Message, Modal, PageHeader } from './ui';
 
 type LineChange = { response?: string; corrections?: Spec; included?: boolean; targetMargin?: number };
 
@@ -24,7 +24,6 @@ export function Workspace({ quote, selected, onSelect, busy, onChangeLine, onNex
   onChangeLine: (itemId: string, input: LineChange, label?: string) => Promise<boolean>;
   onNext: () => void; onNew: () => void;
 }) {
-  const [emailOpen, setEmailOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [issuesOnly, setIssuesOnly] = useState(false);
   const [margin, setMargin] = useState('');
@@ -40,7 +39,7 @@ export function Workspace({ quote, selected, onSelect, busy, onChangeLine, onNex
   const marginValid = margin.trim() !== '' && Number.isFinite(marginNum) && marginNum >= 0 && marginNum <= 80;
   return <>
     <PageHeader title="Review RFQ" subtitle={quote.customer || 'Check the items below.'} actions={
-      issues.length ? <button className="button primary" disabled={!!busy} onClick={() => setEmailOpen(true)}><Mail size={14} />Ask buyer</button>
+      issues.length ? <button className="button primary" disabled={!!busy} onClick={() => { setIssuesOnly(true); onSelect(issues[0]!.id); }}><CircleHelp size={14} />Resolve questions</button>
         : <button className="button primary" disabled={!!busy} onClick={onNext}>Review quote<ArrowRight size={14} /></button>
     } />
     <div className={`review-summary ${issues.length ? 'needs-review' : 'complete'}`}>
@@ -61,14 +60,13 @@ export function Workspace({ quote, selected, onSelect, busy, onChangeLine, onNex
         </tr>)}
       </tbody></table></div>
     </section>
-    <LineDetail key={item.id} quote={quote} item={item} busy={busy} onChangeLine={onChangeLine} onAsk={() => setEmailOpen(true)} />
+    <LineDetail key={item.id} quote={quote} item={item} busy={busy} onChangeLine={onChangeLine} />
     <div className="review-footer">
       <details className="pricing-settings"><summary>Pricing settings</summary><div className="margin-setting"><label>Target gross margin<span className="input-suffix small"><input aria-label="Target gross margin" disabled={!!busy} type="number" min={0} max={80} step={0.5} value={margin} onChange={e => setMargin(e.target.value)} /><span>%</span></span></label><button className="button secondary small" disabled={!!busy || !marginValid || Math.abs(marginNum / 100 - quote.targetMargin) < 1e-9} onClick={() => onChangeLine(item.id, { targetMargin: marginNum / 100 }, 'Repricing')}>Reprice</button></div></details>
       {issues.length > 0 && <button className="button secondary" disabled={!!busy} onClick={onNext}>Preview quote<ArrowRight size={14} /></button>}
     </div>
     <p className="data-note">Catalog facts and benchmarks are sourced. Cost, stock and lead time are synthetic.</p>
     {sourceOpen && <Modal title="Original RFQ" onClose={() => setSourceOpen(false)} wide><SourcePanel quote={quote} item={item} /></Modal>}
-    {emailOpen && <BuyerEmail quote={quote} items={issues} onClose={() => setEmailOpen(false)} />}
   </>;
 }
 
@@ -81,7 +79,7 @@ function SourcePanel({ quote, item }: { quote: Quote; item: QuoteItem }) {
   return <section className="source"><p className="muted">{item.source}</p><div className="source-text" ref={ref}>{lines.map((l, i) => /^--- .* ---$/.test(l) ? <div key={i} className="source-doc">{l.slice(4, -4)}</div> : <div key={i} className={hit(l) ? 'hl' : ''}>{l || ' '}</div>)}</div></section>;
 }
 
-function LineDetail({ quote, item, busy, onChangeLine, onAsk }: { quote: Quote; item: QuoteItem; busy: string | null; onChangeLine: (id: string, input: LineChange, label?: string) => Promise<boolean>; onAsk: () => void }) {
+function LineDetail({ quote, item, busy, onChangeLine }: { quote: Quote; item: QuoteItem; busy: string | null; onChangeLine: (id: string, input: LineChange, label?: string) => Promise<boolean> }) {
   const [answer, setAnswer] = useState('');
   const [editing, setEditing] = useState(false);
   const asks = [...new Set([...item.conflicts, ...item.questions])];
@@ -99,7 +97,7 @@ function LineDetail({ quote, item, busy, onChangeLine, onAsk }: { quote: Quote; 
       <details><summary>Price & benchmark</summary>{price ? <><div className="price-grid"><div><span>Our price / {price.unit}</span><strong>{money(price.unitPrice)}</strong></div><div><span>Benchmark / {price.unit}</span><strong>{price.benchmark === null ? 'Unavailable' : money(price.benchmark)}</strong></div><div><span>Gross margin</span><strong>{pct(price.margin)}</strong></div><div><span>Item total</span><strong>{money(price.lineTotal)}</strong></div></div><p className="explain-text">{price.explanation}</p><p className="muted small-note">{price.benchmarkStatus}{price.benchmarkSource && ` · ${price.benchmarkSource}`}{price.benchmarkDate && ` · ${price.benchmarkDate}`}.</p></> : <p className="muted">An exact match and a quantity in pieces are needed before pricing.</p>}</details>
       <details><summary>Compliance evidence{requirements.some(c => c.status === 'missing' || c.status === 'pending') ? ' — missing or pending' : ''}</summary><ul className="compliance">{item.compliance.map((c, i) => <li key={i}><ShieldCheck size={15} /><div><strong>{c.requirement}</strong><p>{c.evidence}</p></div><Badge status={c.status} /></li>)}</ul></details>
     </div>
-    {item.included && isBlocked(item) && <p className="line-help"><button className="link" onClick={onAsk}>Ask the buyer</button> or exclude this item to quote the rest.</p>}
+    {item.included && isBlocked(item) && <p className="line-help">Confirm these details with the buyer, then apply their answer above or edit the specs. You can exclude this item to quote the rest.</p>}
     {editing && <CorrectionForm item={item} busy={busy} onClose={() => setEditing(false)} onSave={async spec => { if (await onChangeLine(item.id, { corrections: spec }, 'Reprocessing line')) setEditing(false); }} />}
   </section>;
 }
@@ -139,13 +137,4 @@ function CorrectionForm({ item, busy, onClose, onSave }: { item: QuoteItem; busy
       </div>
     </Modal>
   );
-}
-
-/** Every unresolved included item is covered in the buyer email. */
-function BuyerEmail({ quote, items, onClose }: { quote: Quote; items: QuoteItem[]; onClose: () => void }) {
-  const subject = `RFQ ${quote.rfqReference || quote.id} — details to confirm`;
-  const body = [`Hi${quote.customer ? ` ${quote.customer} team` : ''},`, '', 'Please confirm the following before we finalize your quote:', '',
-    ...items.flatMap(item => [`Item ${quote.items.indexOf(item) + 1}: ${item.original}`, ...[...new Set([...item.conflicts, ...item.questions, ...item.blockers])].map(q => `  • ${bareQuestion(q)}`), ...item.compliance.filter(c => c.status === 'pending' && !item.blockers.some(b => b.includes(c.requirement))).map(c => `  • ${c.requirement}: evidence is still pending.`), '']),
-    'Please reply with the confirmed specifications or let us know which items to exclude.', '', 'Thank you,', 'RudCo'].join('\n');
-  return <Modal title="Ask buyer" onClose={onClose} wide footer={<><CopyButton text={`Subject: ${subject}\n\n${body}`} label="Copy email" /><a className="button primary" href={`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}><Mail size={14} />Open email</a></>}><p className="muted small-note">Review and send this in your email app.</p><div className="email-preview"><div className="email-subject"><span>Subject</span>{subject}</div><pre>{body}</pre></div></Modal>;
 }
