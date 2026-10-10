@@ -31,7 +31,7 @@ test('fillable PDF form values are read from form fields', async () => {
   f.setText('RFQ-2026-118');
   f.addToPage(page, { x: 50, y: 700, width: 200, height: 20 });
   const src = await parseUpload(file('form.pdf', await doc.save()));
-  assert.ok(src.segments.some((s) => s.text.includes('RFQ-2026-118') && s.ref.includes('form field')));
+  assert.ok(src.segments.some((s) => s.text.includes('RFQ-2026-118') && /page 1 · line \d+/.test(s.ref)));
 });
 
 test('empty/scanned PDF asks for OCR; corrupt PDF and wrong magic are rejected clearly', async () => {
@@ -96,4 +96,26 @@ test('normalization: fractions, grades, materials, forms, gauges, quantity units
   assert.equal(normalizeFinish('#4 brushed'), '#4');
   assert.equal(normalizeQtyUnit('sheets'), 'pc');
   assert.equal(normalizeQtyUnit('lbs'), 'lb');
+});
+
+test('headerless CSV preserves the first requested item', async () => {
+  const bytes = new TextEncoder().encode('6061-T651 plate,2,12 x 24 in\n304 SS sheet,3,12 x 24 in');
+  const src = await parseUpload(file('no-header.csv', bytes));
+  assert.equal(src.segments.length, 2);
+  assert.match(src.segments[0]!.text, /6061-T651/);
+  assert.equal(src.segments[0]!.ref, 'no-header.csv · row 1');
+});
+
+test('UTF-16 semicolon CSV preserves non-ASCII text and missing quantity', async () => {
+  const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('Description;Qty\n6061-T651 plaque;TBD\n304 SS tôles;2', 'utf16le')]);
+  const src = await parseUpload(file('rfq.csv', bytes));
+  assert.ok(src.segments.some(s => s.text.includes('Qty: TBD')));
+  assert.ok(src.segments.some(s => s.text.includes('tôles')));
+});
+
+test('same-named email attachments retain distinct source references', async () => {
+  const eml = ['Subject: RFQ','Content-Type: multipart/mixed; boundary=X','','--X','Content-Type: text/plain','','Files attached.', ...[1,2].flatMap(n => ['--X','Content-Type: text/csv','Content-Disposition: attachment; filename="lines.csv"','','Description,Qty',`6061 plate ${n},2`]),'--X--'].join('\r\n');
+  const src = await parseUpload(file('rfq.eml', new TextEncoder().encode(eml)));
+  assert.ok(src.segments.some(s => s.ref.includes('lines.csv')));
+  assert.ok(src.segments.some(s => s.ref.includes('lines (2).csv')));
 });

@@ -2,6 +2,7 @@ import { clarifyRequestSchema } from '@/lib/shared/schema';
 import { applyAnswer, applyCorrections, interpretAnswer } from '@/lib/server/clarify';
 import { errorJson, toErrorResponse } from '@/lib/server/errors';
 import { validateQuoteForExport } from '@/lib/server/quote-validation';
+import { classifyLine } from '@/lib/server/extract';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,9 @@ export async function POST(request: Request): Promise<Response> {
   try {
     if (Number(request.headers.get('content-length') ?? 0) > 2_000_000) return errorJson(413, 'PAYLOAD_TOO_LARGE', 'Quote payload is too large.');
     let body: unknown;
-    try { body = await request.json(); } catch { return errorJson(400, 'BAD_REQUEST', 'Send valid JSON.'); }
+    const raw = await request.text();
+    if (raw.length > 2_000_000) return errorJson(413, 'PAYLOAD_TOO_LARGE', 'Quote payload is too large.');
+    try { body = JSON.parse(raw); } catch { return errorJson(400, 'BAD_REQUEST', 'Send valid JSON.'); }
     const parsed = clarifyRequestSchema.safeParse(body);
     if (!parsed.success) return errorJson(400, 'VALIDATION_FAILED', 'Request does not match the clarify contract.', parsed.error.issues.slice(0, 10).map((i) => `${i.path.join('.')}: ${i.message}`));
     const { quote, itemId, response, corrections, included, targetMargin } = parsed.data;
@@ -33,6 +36,17 @@ export async function POST(request: Request): Promise<Response> {
       item = { ...item, ...applyAnswer(item, answer) };
       if (!extractionProvider.includes(model)) extractionProvider = `${extractionProvider}; clarification: ${model}`;
     }
+    const warnings = [...quote.warnings.filter((w) => !/^Line \d+: target margin/.test(w))];
+    if (corrections || response?.trim()) {
+      // Reclassify the buyer-confirmed spec, rather than retaining an obsolete
+      // classification of the original line after a material/grade correction.
+      item.classification = null;
+      try {
+        item.classification = await classifyLine(`Buyer-confirmed specification: ${JSON.stringify(item.spec)}`, quote.id);
+      } catch (error) {
+        warnings.push(`Jev classification unavailable for updated line: ${(error as Error).message}`);
+      }
+    }
     if (included !== undefined) item.included = included;
     const items = current.items.map((it, i) => (i === index ? item : it));
     const next = await validateQuoteForExport({
@@ -41,7 +55,7 @@ export async function POST(request: Request): Promise<Response> {
       targetMargin: targetMargin ?? current.targetMargin,
       provider: { ...current.provider, extraction: extractionProvider },
     });
-    return Response.json({ ...next, warnings: [...new Set([...current.warnings.filter((w) => !/^Line \d+: target margin/.test(w)), ...next.warnings])] }, { headers: { 'Cache-Control': 'no-store' } });
+    return Response.json({ ...next, warnings: [...new Set([...warnings, ...next.warnings])] }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return toErrorResponse(error, 'api/rfq/clarify');
   }

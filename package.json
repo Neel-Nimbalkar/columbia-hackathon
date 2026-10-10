@@ -7,11 +7,13 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port ${PORT:-3000}",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "harness": "node --import tsx scripts/rfq-harness.ts"
   },
   "dependencies": {
     "exceljs": "4.4.0",
     "geist": "^1.4.0",
+    "jszip": "3.10.2",
     "lucide-react": "^0.468.0",
     "next": "^16.0.0",
     "pdf-lib": "^1.17.1",
@@ -21,13 +23,18 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@types/jsdom": "^21.1.7",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "jsdom": "^26.1.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   },
   "engines": {
     "node": ">=22.13.0"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
   }
 }

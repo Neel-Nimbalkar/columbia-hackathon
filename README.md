@@ -1,6 +1,6 @@
 # RudCo RFQ-to-Quote
 
-Turns messy metals RFQs (email text, PDF incl. fillable forms, CSV, XLSX, EML) into explainable, priced quotations with a server-generated PDF. One Next.js service: frontend + API routes, deployed on Render (`render.yaml`).
+Turns messy metals RFQs (pasted email, PDF incl. fillable/XFA forms and scans, Word, Excel, CSV, saved .eml with attachments, photos) into explainable, priced quotations with a server-generated PDF. One Next.js service: frontend + API routes, deployed on Render (`render.yaml`).
 
 ## Backend at a glance
 
@@ -19,25 +19,32 @@ npm ci
 npm run dev
 ```
 
-Open http://localhost:3000. Select one of the three clearly labeled sample workspaces to review the frontend. `Process RFQ` always calls the real backend; this branch has no mock process endpoint. Samples do not make AI calls and do not represent verified supplier offers.
+Open http://localhost:3000. The six sample requests use the real processing pipeline. Configure server-only provider keys from `.env.example`.
 
-## Implemented in this PR
+## Using it
 
-- New RFQ: drag/drop or browse PDF/CSV/XLSX/TXT (10 MB limit), paste email, customer and target margin.
-- Workspace: original source, extracted line table, specifications and provenance, matches/alternatives, pricing rationale, benchmark labeling, compliance evidence, clarification form, corrections and exclusions.
-- Final quote: editable customer/dates, included products, documentation and terms, visible excluded lines, readiness guard and PDF download.
-- Shared TypeScript/Zod schemas and typed API client.
-- Explicit illustrative fixtures: successful, missing aluminum temper (answer `T6`), unavailable 316L/certification.
-- In-memory PDF generation with wrapping, page breaks, sample watermark/disclosure and structural blocker validation.
-- Fail-closed production export adapter. The partner must connect authoritative validation before real export can work.
+Open the app and either drop RFQ files / paste an email and press **Process RFQ**, or click one of the six **Try a sample RFQ** cards. Samples run through the real pipeline (AI extraction, catalog match, pricing) — nothing is precomputed:
 
-## Integration
+| Sample | What it shows |
+|---|---|
+| Messy shop email | Shorthand (16ga, CRS, fractions) → three exact matches → exportable PDF (PRD test A) |
+| Missing temper | 6061 plate without temper → precise question → answer `T6` → ready (PRD test B) |
+| Unavailable grade & certs | 316L / 17-4 PH, DFARS, US melt, 3.1 MTRs → no substitution, alternatives shown, compliance missing (PRD test C) |
+| Fillable RFQ form (PDF) | Values read from form fields and placed in their table rows; unchecked boxes are not requirements |
+| Spreadsheet BOM | Merged title, blank row, cached formula, `TBD` quantity |
+| Email with CSV attachment | Nested MIME, encoded subject, semicolon CSV attachment |
 
-See [API contract](docs/API.md). Partner implements `/api/rfq/process`, `/api/rfq/clarify`, `/api/health` and replaces `src/lib/server/quote-validation.ts`. Production PDF requests deliberately return `503 BACKEND_NOT_CONNECTED` until this integration is complete. Demo PDF exports are unmistakably samples; the browser's `demo` flag cannot authorize a production quotation.
+Sample files live in `public/samples/` (regenerate with `npx tsx scripts/make-samples.ts`).
 
-The process endpoint accepts multipart `file`, `text`, `customer`, `targetMargin`. The clarify endpoint accepts JSON `{quote,itemId,response?,corrections?,included?,targetMargin?}`. Both return the complete `Quote` directly, validated by the client. Errors use `{error:{code,message,details?}}`.
+**Workspace:** original RFQ with the selected line highlighted, extracted lines with status, per-line spec/provenance, catalog match and alternatives, pricing with the room between our margin floor and the benchmark, compliance evidence, buyer answers, spec corrections, include/exclude, margin repricing, and a one-click buyer email listing every open question. **Final quote:** editable customer/reference/dates, readiness checklist that links back to each blocked line, server-validated PDF and a cover email.
 
-Copy `.env.example` to `.env.local` and fill in the keys. Set secrets locally or in Render, never commit them. The requested Nicrron model must be verified by the partner rather than assumed available.
+## Document handling
+
+- **PDF:** text is rebuilt into visual lines from positions, so table rows stay together and columns are separated by `|`. Fillable-form values (text, choice, checkbox `[x]`/`[ ]`, radio) are merged into the row they sit on; template placeholders (`MM/DD/YY`, `$0.00`, `Name`) are dropped. XFA forms are read through pdf.js. Pages with no text layer are treated as scans: the page image is extracted, encoded as PNG and transcribed by the vision model (up to 10 pages), labeled `(transcribed)`.
+- **Images** (PNG/JPG/WebP/GIF ≤ 5 MB) are transcribed the same way. HEIC, `.xls`, `.doc`, `.msg` get a specific "save as …" message.
+- **Word (.docx):** paragraphs and tables in document order. **Excel:** merged cells once, cached formula results only, header row detected by column titles. **CSV/TSV:** delimiter detected (`,` `;` tab `|`), UTF-8/UTF-16/Windows-1252.
+- **Email (.eml):** nested multipart, RFC 2047 headers, per-part charsets, HTML fallback, forwarded messages, and supported attachments parsed as their own sources.
+- **Long RFQs** are extracted in overlapping chunks in parallel; a reply that hits the output limit splits its chunk. Items may span several lines (wrapped table rows) and are anchored to the exact line range; anything that cannot be traced to the documents is dropped and reported. Every truncation is surfaced as a warning.
 
 ## Verification
 
@@ -48,12 +55,24 @@ npm run build
 npm run start
 ```
 
-Production start binds `0.0.0.0` using `PORT`, defaulting to 3000. PDF tests exercise blocking, sample disclosure, page overflow and the fail-closed production adapter. Tests do not prove the future real AI/backend acceptance flows.
+Production start binds `0.0.0.0` using `PORT`, defaulting to 3000. `GET /api/health` reports provider configuration without calling models.
 
 ## Delivery and Render
 
-**Both halves ship through pull requests only. No direct pushes to main and no automatic merge by agents.** This branch does not provision Render or claim a live deployment. Partner's Render-enabled agent owns one Node Web Service with `npm ci && npm run build`, `npm run start`, health `/api/health`, server-only AI secrets and automatic deployment from reviewed main. Detailed steps and acceptance requirements are in [HANDOFF.md](docs/HANDOFF.md).
+Ship through pull requests only. One Node web service on Render (`render.yaml`): `npm ci && npm run build`, `npm run start`, health `/api/health`, server-only secrets (`NICRRON_API_KEY`, `TYPESAFE_API_KEY`, `PRISMTRACE_*`), auto-deploy from `main`.
 
-## Demo data
+## Data disclosure
 
-The frontend uses fictional internal SKUs and synthetic costs, inventory, benchmarks and lead times. These fixtures are UI samples, not the required sourced 20–30-product backend catalog. No certificates or origin evidence are invented. Sample PDF export is for interface review only. Manual spec reprocessing is disabled in fixture mode because it requires the real matching engine.
+Catalog product facts are sourced from Speedy Metals product pages; stock, cost and lead time are synthetic seeds and labeled as such in the UI and PDF. No certificates or origin evidence are invented.
+
+## Typed purchase acceptance
+
+The server recomputes the quote before signing and refuses blocked lines, samples, zero included lines, missing authorization, invalid buyer details, expired/future-dated quotes, mismatched signing companies, or changed commercial content. Expiration dates are inclusive through the stated UTC date. Changes to the quote or signer details clear the authorization/signature in the UI; quote controls are locked while signing.
+
+The signed PDF includes the typed name, email, company, total, server UTC timestamp, acceptance reference, purchase statement, exclusions and a SHA-256 digest of the commercial content. Its embedded `buyer-acceptance.json` preserves the exact UTF-8 signature and quotation snapshot, including names outside the built-in PDF font's character set. Repeat downloads reuse the same signed PDF.
+
+Signing generates a purchase-request artifact. It does not transmit an order, verify signer identity, reserve stock, or confirm supplier fulfillment. The app is stateless: buyers must save the signed PDF and send it to RudCo; refreshing the workspace clears its in-memory signature.
+
+## Live acceptance harness
+
+`npm run harness -- http://localhost:3000` exercises the real AI pipeline, corrections, compliance, repricing, PDFs, and signing. It requires configured Nicrron, Jev and PRISM keys and makes billable provider calls. It generates artifacts without transmitting purchases.

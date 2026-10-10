@@ -1,31 +1,141 @@
 'use client';
-import { useRef, useState } from 'react';
-import { ArrowRight, ArrowLeft, Check, CheckCircle2, ChevronRight, CircleHelp, FileText, Upload, X, Plus, Layers3, Download, AlertTriangle, Loader2, Pencil, Package, ShieldCheck, SlidersHorizontal, Inbox, ExternalLink } from 'lucide-react';
-import type { Quote, QuoteItem, Spec } from '@/lib/shared/schema';
-import { processRfq, updateQuote, downloadPdf } from '@/lib/client/api';
-import { makeDemoQuote, clarifyDemo, demoReprice, demoTexts, type DemoKind } from '@/lib/demo/fixtures';
-type View='new'|'workspace'|'final';
-const money=(n:number)=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n);
-const percent=(n:number)=>`${(n*100).toFixed(1)}%`;
-const dimensions=(s:Spec)=>[s.thickness,s.width,s.length].map(v=>v??'?').join(' × ')+` ${s.dimensionUnit??'(units unknown)'}`;
-const detailFields:[keyof Spec,string][]=[['material','Material'],['grade','Grade'],['form','Product form'],['thickness','Thickness'],['width','Width'],['length','Length'],['diameter','Diameter'],['dimensionUnit','Dimension unit'],['gauge','Gauge'],['quantity','Quantity'],['quantityUnit','Quantity unit'],['temper','Temper'],['finish','Finish'],['tolerance','Tolerance'],['countryOfOrigin','Origin restriction']];
-function Badge({status}:{status:string}){const cls=status==='Ready'||status==='verified'?'green':status==='No Match'||status==='missing'?'red':status==='Matched'?'purple':status==='not_requested'?'neutral':'amber';return <span className={`badge ${cls}`}><i/>{status.replaceAll('_',' ')}</span>;}
-export default function Home(){
- const [view,setView]=useState<View>('new');const [quote,setQuote]=useState<Quote|null>(null);const [selected,setSelected]=useState('line-1');const [demo,setDemo]=useState(false);const [text,setText]=useState('');const [file,setFile]=useState<File|null>(null);const [customer,setCustomer]=useState('');const [margin,setMargin]=useState('20');const [busy,setBusy]=useState('');const [error,setError]=useState('');const [notice,setNotice]=useState('');const [drag,setDrag]=useState(false);const [answer,setAnswer]=useState('');const [editing,setEditing]=useState(false);const [draft,setDraft]=useState<Spec|null>(null);const [tab,setTab]=useState<'specs'|'pricing'|'compliance'>('specs');const fileRef=useRef<HTMLInputElement>(null);
- const item=quote?.items.find(i=>i.id===selected)??quote?.items[0];const included=quote?.items.filter(i=>i.included)??[];const blocked=included.filter(i=>i.status!=='Ready'||i.blockers.length||i.questions.length||!i.pricing||i.compliance.some(c=>c.status==='pending'||c.status==='missing'));const canExport=!!quote&&included.length>0&&blocked.length===0&&quote.ready;
- async function action(label:string,fn:()=>Promise<void>){if(busy)return;setBusy(label);setError('');setNotice('');try{await fn();}catch(e){setError(e instanceof Error?e.message:'Something went wrong. Please retry.');}finally{setBusy('');}}
- function loadDemo(kind:DemoKind){if(busy)return;const q=makeDemoQuote(kind);setQuote(q);setDemo(true);setSelected(q.items[0].id);setView('workspace');setMargin('20');setAnswer('');setEditing(false);setError('');setNotice('Illustrative fixture loaded. No AI request was made.');}
- function acceptFile(next:File|undefined){if(!next)return;if(!/\.(pdf|csv|xlsx|txt|eml)$/i.test(next.name)){setError('Choose a PDF, CSV, XLSX, TXT or EML file.');return;}if(next.size>10*1024*1024){setError('This file exceeds the 10 MB upload limit.');return;}if(!next.size){setError('This file is empty.');return;}setFile(next);setError('');}
- function selectItem(id:string){setSelected(id);setAnswer('');setEditing(false);setTab('specs');}
- async function changeLine(input:{response?:string;corrections?:Spec;included?:boolean;targetMargin?:number}){if(!quote||!item)return;await action('Updating quotation',async()=>{let next:Quote;if(demo){if(input.corrections)throw new Error('Manual specification reprocessing requires the partner backend. Fixture edits cannot validate new products.');if(input.response)next=clarifyDemo(quote,item.id,input.response);else next=demoReprice({...quote,targetMargin:input.targetMargin??quote.targetMargin,items:quote.items.map(i=>i.id===item.id&&input.included!==undefined?{...i,included:input.included}:i)});}else next=await updateQuote({quote,itemId:item.id,...input});setQuote(next);setEditing(false);setAnswer('');setNotice('Quotation updated. Prices and review status refreshed.');});}
- function newRfq(){setView('new');setError('');setNotice('');}
- return <div className="app-shell">
- <aside className="sidebar"><a className="brand" href="/" aria-label="RudCo home"><span className="brand-mark"><Layers3 size={20}/></span>rudco<span className="brand-dot">.</span></a><div className="org-switch"><span className="org-icon">R</span><div>RudCo Supply<span>Quote operations</span></div><span className="tiny-chevron">⌄</span></div><div className="nav-label">WORKSPACE</div><nav aria-label="Main navigation"><button className={view==='new'?'nav active':'nav'} onClick={newRfq}><Plus size={17}/>New RFQ</button><button className={view==='workspace'?'nav active':'nav'} disabled={!quote} onClick={()=>setView('workspace')}><SlidersHorizontal size={17}/>Quote workspace{quote&&<span className="nav-count">{quote.items.length}</span>}</button><button className={view==='final'?'nav active':'nav'} disabled={!quote} onClick={()=>setView('final')}><FileText size={17}/>Final quote</button></nav><div className="sidebar-bottom"><div className="pipeline"><span className="pipeline-icon"><ShieldCheck size={17}/></span><div>Specifications first<p>Every decision, explained.</p></div></div><div className="user-row"><span className="avatar">RS</span><div>Sales workspace<span>No sign-in required</span></div><span className="online-dot"/></div></div></aside>
- <div className="main-shell"><header className="topbar"><div className="breadcrumbs">Workspace<ChevronRight size={13}/><span>{view==='new'?'New RFQ':view==='workspace'?'Quote workspace':'Final quote'}</span>{quote&&view!=='new'&&<><ChevronRight size={13}/><code>{quote.id}</code></>}</div><span className="prototype-label"><span/>Hackathon prototype</span></header>
- <main><div className="page-heading"><div><div className="eyebrow">{view==='new'?'RFQ INTAKE':view==='workspace'?'REVIEW & RESOLVE':'READY FOR REVIEW'}</div><h1>{view==='new'?'A clearer path from RFQ to quote.':view==='workspace'?'Every line. Every detail.': 'Your quotation, brought together.'}</h1><p>{view==='new'?'Bring the messy request. Build a quotation you can stand behind.':view==='workspace'?'Review specifications, understand matches, and resolve what’s missing.':'Review the included products and documentation before export.'}</p></div>{view!=='new'&&<button className="button secondary" onClick={newRfq}><Plus size={15}/>New RFQ</button>}</div>
- {error&&<div className="message error" role="alert"><AlertTriangle size={18}/><span>{error}</span><button aria-label="Dismiss error" onClick={()=>setError('')}><X size={15}/></button></div>}{notice&&<div className="message info" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button aria-label="Dismiss notice" onClick={()=>setNotice('')}><X size={15}/></button></div>}
- {view==='new'&&<><div className="intake-layout"><section className="card intake-card"><div className="section-title"><span className="section-icon"><Inbox size={17}/></span><div><h2>Start with the request</h2><p>Upload a document or paste the buyer’s email.</p></div><span className="step-counter">01 / 03</span></div><div className={`dropzone ${drag?'dragging':''}`} onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)} onDrop={e=>{e.preventDefault();setDrag(false);if(e.dataTransfer.files.length>1){setError('Upload one file at a time. Combine additional requirements in the email field.');return;}acceptFile(e.dataTransfer.files[0]);}}><input ref={fileRef} type="file" accept=".pdf,.csv,.xlsx,.txt,.eml" className="file-input" aria-label="Upload RFQ file" onChange={e=>acceptFile(e.target.files?.[0])}/><span className="upload-icon"><Upload size={23}/></span><h3>{file?file.name:'Drop your RFQ here'}</h3><p>{file?`${(file.size/1024).toFixed(1)} KB · ready to process`:'PDF, spreadsheet or text file · up to 10 MB'}</p>{file?<button className="button secondary small" onClick={()=>{setFile(null);if(fileRef.current)fileRef.current.value='';}}>Remove file<X size={13}/></button>:<button className="button secondary small" onClick={()=>fileRef.current?.click()}>Browse files<ArrowRight size={13}/></button>}</div><div className="or-divider"><span/>or paste an email<span/></div><label className="field-label" htmlFor="rfq-email">Buyer’s request<span>Original wording is preserved</span></label><textarea id="rfq-email" className="email-input" maxLength={100000} value={text} onChange={e=>setText(e.target.value)} placeholder={'Hi team,\n\nCan you quote 304 SS sheet, .060 in × 48 in × 96 in,\n2B finish, quantity 3 sheets?\n\nThanks!'} /><div className="form-grid"><label>Customer<input value={customer} onChange={e=>setCustomer(e.target.value)} maxLength={200} placeholder="Company or buyer name"/></label><label>Target gross margin<div className="input-suffix"><input type="number" min="0" max="80" step="1" value={margin} onChange={e=>setMargin(e.target.value)}/><span>%</span></div></label></div><div className="intake-footer"><span><ShieldCheck size={14}/>Files processed in memory</span><button className="button primary" disabled={!!busy||(!text.trim()&&!file)} onClick={()=>action('Processing RFQ',async()=>{const m=Number(margin);if(!margin||!Number.isFinite(m)||m<0||m>80)throw new Error('Enter a margin between 0% and 80%.');const q=await processRfq({text,file,customer,targetMargin:m/100});setQuote(q);setDemo(false);setSelected(q.items[0].id);setView('workspace');setEditing(false);})}>{busy?<Loader2 className="spin" size={16}/>:<ArrowRight size={16}/>} {busy||'Process RFQ'}</button></div></section><aside className="intake-aside"><div className="aside-heading"><span className="purple-line"/>FROM REQUEST TO READY</div><div className="workflow-step"><span>1</span><div><h3>Extract the requirements</h3><p>Material, dimensions, quantity and documentation, with original source references.</p></div></div><div className="workflow-step"><span>2</span><div><h3>Make an informed match</h3><p>Compare technical specifications. Surface gaps, alternatives and pricing decisions.</p></div></div><div className="workflow-step"><span>3</span><div><h3>Review, then export</h3><p>Resolve critical questions before producing a professional quotation.</p></div></div><div className="aside-note"><CircleHelp size={18}/><h3>Unknown means unknown.</h3><p>Missing specifications stay visible. A similar product is never silently substituted.</p></div><div className="integration-note"><span className="dot amber-dot"/>Frontend preview build<p>Real processing requires the partner’s AI backend. The button sends your input to the real endpoint; it does not use sample output.</p></div></aside></div><section className="examples-section"><div className="examples-heading"><h2>Explore the review workflow</h2><span>Illustrative fixtures · no AI processing</span></div><div className="example-grid">{([['successful','01','Fully specified','Two products, clear matches.','green'],['ambiguous','02','A missing detail','Resolve an aluminum temper.','amber'],['invalid','03','An incompatible request','See why a near match is blocked.','red']] as const).map(([kind,num,title,desc,color])=><button className="example-card" key={kind} onClick={()=>loadDemo(kind)} disabled={!!busy}><div><span className={`example-number ${color}`}>{num}</span><ArrowRight size={17}/></div><h3>{title}</h3><p>{desc}</p><span className="example-link">Open sample workspace</span></button>)}</div></section></>}
- {quote&&view==='workspace'&&<><div className="review-strip"><div><span className="metric-label">REQUESTED LINES</span><strong>{quote.items.length.toString().padStart(2,'0')}</strong></div><div><span className="metric-label">READY TO QUOTE</span><strong className="green-text">{included.filter(i=>i.status==='Ready').length.toString().padStart(2,'0')}</strong></div><div><span className="metric-label">NEEDS REVIEW</span><strong className={blocked.length?'amber-text':''}>{blocked.length.toString().padStart(2,'0')}</strong></div><div><span className="metric-label">QUOTE VALUE</span><strong>{money(quote.total)}</strong></div><button className="button primary" onClick={()=>setView('final')}>Review quote<ArrowRight size={15}/></button></div>{demo&&<div className="demo-banner"><Layers3 size={15}/><span><strong>Illustrative workspace.</strong> No AI call made. Costs, stock, benchmarks and lead times are synthetic.</span></div>}<div className="workspace-layout"><section className="card source-panel"><div className="panel-heading"><h2><FileText size={15}/>Original request</h2><span className="mini-tag">SOURCE</span></div><div className="source-meta"><span className="avatar small-avatar">NF</span><div>{quote.customer||'Customer not supplied'}<span>{demo?'Sample email':'Uploaded / pasted RFQ'}</span></div></div><pre>{quote.originalText}</pre><div className="source-footer"><ShieldCheck size={14}/>Original descriptions retained</div></section><div className="workspace-right"><section className="card products-panel"><div className="panel-heading"><h2><Package size={15}/>Extracted products</h2><span className="muted-text">{quote.items.length} line{quote.items.length===1?'':'s'}</span></div><div className="table-scroll"><table><thead><tr><th>PRODUCT</th><th>QUANTITY</th><th>STATUS</th><th className="align-right">LINE TOTAL</th><th/></tr></thead><tbody>{quote.items.map((i,index)=><tr key={i.id} className={`${item?.id===i.id?'selected-row':''} ${!i.included?'excluded-row':''}`}><td><button className="product-select" onClick={()=>selectItem(i.id)}><span className="line-number">{String(index+1).padStart(2,'0')}</span><span><strong>{i.spec.material??'Unknown material'} {i.spec.grade??'—'} {i.spec.temper??''}</strong><small>{i.spec.form??'Unknown form'} · {dimensions(i.spec)}</small>{!i.included&&<small>Excluded from quotation</small>}</span></button></td><td>{i.spec.quantity??'—'}<small>{i.spec.quantityUnit??'Unit unknown'}</small></td><td><Badge status={i.status}/></td><td className="align-right">{i.pricing?money(i.pricing.lineTotal):'—'}</td><td><button className="icon-button" aria-label={`Inspect line ${index+1}`} onClick={()=>selectItem(i.id)}><ChevronRight size={16}/></button></td></tr>)}</tbody></table></div></section>{item&&<section className="card detail-panel"><div className="detail-heading"><div><span className="eyebrow">LINE {String(quote.items.findIndex(i=>i.id===item.id)+1).padStart(2,'0')} DETAILS</span><h2>{item.spec.material??'Unspecified material'} {item.spec.grade??''} {item.spec.form??''}</h2><p>{item.source}</p></div><div className="detail-actions"><label className="include-toggle"><input type="checkbox" checked={item.included} disabled={!!busy} onChange={e=>changeLine({included:e.target.checked})}/>Include line</label><button className="button secondary small" disabled={!!busy} onClick={()=>{setDraft(structuredClone(item.spec));setEditing(true);}}><Pencil size={13}/>Correct specs</button></div></div><div className="original-line"><span>ORIGINAL</span>{item.original}</div>{item.blockers.length>0&&<div className="blocker-box"><AlertTriangle size={16}/><div><strong>Review required</strong><ul>{item.blockers.map((b,i)=><li key={i}>{b}</li>)}</ul></div></div>}{item.questions.length>0&&<div className="clarification-box"><div><CircleHelp size={17}/><strong>Ask the buyer</strong>{demo&&<span className="mini-tag">DEMO: T6 ONLY</span>}</div>{item.questions.map((q,i)=><p key={i}>{q}</p>)}<form onSubmit={e=>{e.preventDefault();changeLine({response:answer.trim()});}}><input aria-label="Buyer clarification answer" value={answer} maxLength={8000} onChange={e=>setAnswer(e.target.value)} placeholder="Enter the buyer’s answer…"/><button className="button primary small" disabled={!answer.trim()||!!busy}>{busy?<Loader2 size={14} className="spin"/>:<ArrowRight size={14}/>}Reprocess line</button></form></div>}{editing&&draft?<form className="correction-form" onSubmit={e=>{e.preventDefault();changeLine({corrections:draft});}}><div className="correction-title"><h3>Correct customer specifications</h3><button type="button" className="icon-button" aria-label="Cancel corrections" onClick={()=>setEditing(false)}><X size={16}/></button></div><p>Blank fields remain unknown. Saving asks the backend to validate and recalculate.</p><div className="spec-form-grid">{detailFields.map(([key,label])=><label key={key}>{label}<input value={draft[key]===null?'':String(draft[key])} type={['thickness','width','length','diameter','gauge','quantity','tolerance'].includes(key)?'number':'text'} step="any" min="0" onChange={e=>{const numeric=['thickness','width','length','diameter','gauge','quantity','tolerance'].includes(key);const value=e.target.value===''?null:numeric?Number(e.target.value):e.target.value;setDraft({...draft,[key]:value});}} placeholder="Unknown"/></label>)}{(['standards','certifications'] as const).map(key=><label key={key}>{key==='standards'?'Standards':'Certifications'}<input value={draft[key].join(', ')} onChange={e=>setDraft({...draft,[key]:e.target.value.split(',').map(v=>v.trim()).filter(Boolean)})} placeholder="Comma separated"/></label>)}<label>MTR required<select value={draft.mtr===null?'unknown':draft.mtr?'yes':'no'} onChange={e=>setDraft({...draft,mtr:e.target.value==='unknown'?null:e.target.value==='yes'})}><option value="unknown">Unknown</option><option value="yes">Yes</option><option value="no">No</option></select></label></div>{demo&&<p className="amber-text">Manual reprocessing needs the real backend. Fixture mode supports only the displayed temper clarification.</p>}<button className="button primary small" disabled={!!busy||demo}>{busy?<Loader2 size={14} className="spin"/>:<Check size={14}/>}Save & reprocess</button></form>:<><div className="detail-tabs" role="tablist" aria-label="Item detail views">{(['specs','pricing','compliance'] as const).map(t=><button role="tab" aria-selected={tab===t} className={tab===t?'active':''} key={t} onClick={()=>setTab(t)}>{t==='specs'?'Specifications & match':t==='pricing'?'Pricing rationale':'Compliance'}</button>)}</div><div className="tab-content" role="tabpanel">{tab==='specs'&&<><div className="spec-summary">{detailFields.filter(([k])=>!['gauge','tolerance','diameter'].includes(k)||item.spec[k]!==null).map(([key,label])=><div key={key}><span>{label}</span><strong className={item.spec[key]===null?'unknown':''}>{item.spec[key]===null?'Unknown':String(item.spec[key])}</strong>{item.provenance[key]&&<small>{item.provenance[key]}</small>}</div>)}</div><div className="match-section"><div className="subheading"><h3>Supplier match</h3>{item.matchedSku&&<code>{item.matchedSku}</code>}</div>{item.matchExplanation.map((e,i)=><p className="explanation" key={i}><span>{item.status==='Ready'?<Check size={13}/>:<CircleHelp size={13}/>}</span>{e}</p>)}{item.alternatives.length>0&&<div className="alternatives"><h4>Alternatives for review</h4>{item.alternatives.map(a=><div key={a.sku}><code>{a.sku}</code><p>{a.reason}</p></div>)}</div>}</div></>}{tab==='pricing'&&<>{item.pricing?<><div className="pricing-grid"><div><span>Supplier cost / {item.pricing.unit}</span><strong>{money(item.pricing.cost)}</strong></div><div><span>Recommended / {item.pricing.unit}</span><strong>{money(item.pricing.unitPrice)}</strong></div><div><span>Actual gross margin</span><strong>{percent(item.pricing.margin)}</strong></div><div><span>Line total</span><strong>{money(item.pricing.lineTotal)}</strong></div></div><div className="rationale"><h3>Why this price?</h3><p>{item.pricing.explanation}</p></div><div className="benchmark-box"><div><span>Comparable benchmark</span><strong>{item.pricing.benchmark===null?'Unavailable':money(item.pricing.benchmark)} {item.pricing.benchmark!==null&&<small>/ {item.pricing.unit}</small>}</strong></div><Badge status={item.pricing.competitive===false?'Needs Clarification':item.pricing.competitive===true?'Matched':'Compliance Pending'}/></div><p className="benchmark-disclosure">{item.pricing.benchmarkStatus}<br/>{item.pricing.benchmarkSource??'No benchmark source'} · {item.pricing.benchmarkDate??'Date unknown'}</p>{item.pricing.competitive===false&&<div className="message warning"><AlertTriangle size={15}/><span>Margin floor exceeds the benchmark. Review competitiveness before sending.</span></div>}</>:<div className="empty-state"><SlidersHorizontal size={25}/><h3>Pricing awaits a valid match</h3><p>Resolve the technical requirements before calculating a selling price.</p></div>}</>}{tab==='compliance'&&<><div className="compliance-list">{item.compliance.map((c,i)=><div key={i}><div><ShieldCheck size={17}/><strong>{c.requirement}</strong><Badge status={c.status}/></div><p>{c.evidence}</p></div>)}</div>{item.spec.standards.length>0&&<p className="muted-text">Requested standards: {item.spec.standards.join(', ')}</p>}{item.spec.certifications.length>0&&<p className="muted-text">Requested certifications: {item.spec.certifications.join(', ')}</p>}<p className="compliance-note">Catalog availability does not establish possession of a lot-specific certificate.</p></>}</div></>}</section>}</div></div><div className="workspace-footer"><div><label htmlFor="workspace-margin">Target gross margin</label><div className="input-suffix"><input id="workspace-margin" type="number" min="0" max="80" value={margin} onChange={e=>setMargin(e.target.value)}/><span>%</span></div><button className="button secondary small" disabled={!!busy||!margin||Number(margin)<0||Number(margin)>80} onClick={()=>changeLine({targetMargin:Number(margin)/100})}>Recalculate</button></div><span>{demo?'Synthetic prices for interface review':'Pricing and validation are calculated by the server'}</span></div>{quote.warnings.length>0&&<div className="quote-warnings">{quote.warnings.map((w,i)=><p key={i}><AlertTriangle size={13}/>{w}</p>)}</div>}</>}
- {quote&&view==='final'&&<><div className={`approval-banner ${canExport?'approved':'blocked'}`}><span className="approval-icon">{canExport?<CheckCircle2 size={21}/>:<AlertTriangle size={21}/>}</span><div><strong>{canExport?(demo?'Sample is ready to preview':'Included lines are ready for server review'):`${blocked.length||1} review issue${blocked.length===1?'':'s'} before export`}</strong><p>{canExport?(demo?'This is an illustrative sample, not an approved supplier quotation.':'The export endpoint will independently validate the quotation.'):'Resolve critical requirements or explicitly exclude affected lines.'}</p></div><button className="button secondary small" onClick={()=>setView('workspace')}><ArrowLeft size={14}/>Back to workspace</button></div><div className="final-layout"><section className="quote-paper"><div className="paper-heading"><div className="paper-brand">rudco<span>.</span><small>Industrial supply</small></div><div><h2>QUOTATION</h2><code>{quote.id}</code>{demo&&<span className="sample-stamp">DEMO SAMPLE</span>}</div></div><div className="quote-meta"><div><span>PREPARED FOR</span><input aria-label="Quote customer" value={quote.customer} maxLength={200} onChange={e=>setQuote({...quote,customer:e.target.value})} placeholder="Customer name"/><small>Customer / buyer</small></div><div><label>Issued<input type="date" value={quote.date} onChange={e=>setQuote({...quote,date:e.target.value})}/></label><label>Valid through<input type="date" min={quote.date} value={quote.expires} onChange={e=>setQuote({...quote,expires:e.target.value})}/></label></div></div><div className="table-scroll"><table className="quote-table"><thead><tr><th>DESCRIPTION</th><th>QTY</th><th>UNIT PRICE</th><th className="align-right">AMOUNT</th></tr></thead><tbody>{included.map(i=><tr key={i.id}><td><strong>{i.spec.material??'Unknown material'} {i.spec.grade??''} {i.spec.temper??''} {i.spec.form??''}</strong><small>{dimensions(i.normalized)} · {i.spec.finish??'Finish unknown'}</small><code>{i.matchedSku??'No matched SKU'}</code><div className="paper-compliance">{i.compliance.map((c,k)=><span key={k}>{c.requirement}: {c.status.replaceAll('_',' ')}</span>)}</div><small>Lead time: {i.leadTime??'To be confirmed'}</small></td><td>{i.spec.quantity??'—'}<small>{i.spec.quantityUnit??'Unknown unit'}</small></td><td>{i.pricing?money(i.pricing.unitPrice):'Pending'}<small>per {i.pricing?.unit??'unknown unit'}</small></td><td className="align-right">{i.pricing?money(i.pricing.lineTotal):'Pending'}</td></tr>)}</tbody></table></div><div className="paper-total"><span>Total · USD<small>Excludes freight and applicable taxes</small></span><strong>{money(quote.total)}</strong></div><div className="paper-terms"><h3>Terms & assumptions</h3><p>Freight and applicable taxes are excluded. Payment terms and delivery schedule are subject to agreement. No substitution of material, grade, temper or certification is authorized.</p></div>{quote.items.some(i=>!i.included)&&<div className="paper-exclusions"><h3>Excluded requests</h3>{quote.items.filter(i=>!i.included).map(i=><p key={i.id}>{i.original} <Badge status={i.status}/></p>)}</div>}<div className="paper-disclosure">{quote.disclosure}</div><div className="paper-footer">RudCo · RFQ to Quote<span>{demo?'Illustrative fixture':'Quotation preview'}</span></div></section><aside className="final-aside"><section className="card export-card"><span className="section-icon"><FileText size={19}/></span><h2>Review & export</h2><p>A professional PDF with product specifications, prices, documentation and terms.</p><div className="export-checks"><div><CheckCircle2 size={15}/>{included.length} included line{included.length===1?'':'s'}</div><div className={blocked.length?'amber-text':''}>{blocked.length?<AlertTriangle size={15}/>:<CheckCircle2 size={15}/>} {blocked.length?`${blocked.length} blocked lines`:'No included critical blockers'}</div><div><ShieldCheck size={15}/>{demo?'Sample disclosure included':'Server validates on export'}</div></div><button className="button primary" disabled={!canExport||!!busy||!quote.customer.trim()||!quote.date||!quote.expires||quote.expires<quote.date} onClick={()=>action('Generating PDF',async()=>{await downloadPdf(quote,demo);setNotice(demo?'Sample PDF downloaded. It is visibly labeled as illustrative.':'Quotation PDF downloaded.');})}>{busy?<Loader2 size={16} className="spin"/>:<Download size={16}/>} {busy||(demo?'Download sample PDF':'Download quotation PDF')}</button>{(!quote.customer.trim()||!quote.date||!quote.expires||quote.expires<quote.date)&&<p className="amber-text">Add a customer and valid issue/expiration dates.</p>}{demo&&<p className="export-note">Demo exports are samples. Production approval requires the partner’s authoritative backend validation.</p>}</section><div className="final-help"><CircleHelp size={17}/><div><strong>Need to change a line?</strong><p>Return to the workspace to correct specifications or answer a clarification.</p></div></div>{blocked.map(i=><div className="blocked-summary" key={i.id}><Badge status={i.status}/><p>{i.blockers.join(' ')||i.questions.join(' ')||'This line requires review.'}</p><button onClick={()=>{selectItem(i.id);setView('workspace');}}>Review line<ArrowRight size={13}/></button></div>)}</aside></div></>}
- </main><footer className="app-footer"><span>RudCo RFQ-to-Quote</span><span>Built for clarity. Reviewed by you.</span></footer></div></div>;
+import { useEffect, useRef, useState } from 'react';
+import type { Signature } from '@/lib/shared/acceptance';
+import type { Quote, Spec } from '@/lib/shared/schema';
+import { ApiRequestError, downloadPdf, downloadBlob, signQuote, processRfq, updateQuote } from '@/lib/client/api';
+import { Sidebar, type View } from '@/components/Sidebar';
+import { NewRfq, type IntakeDraft } from '@/components/NewRfq';
+import { Workspace } from '@/components/Workspace';
+import { FinalQuote } from '@/components/FinalQuote';
+import { Message } from '@/components/ui';
+
+export interface Processing { startedAt: number; label: string; hasFiles: boolean; controller: AbortController }
+
+const HINTS: Record<string, string> = {
+  PROVIDER_NOT_CONFIGURED: 'The server is missing its AI provider keys (NICRRON_API_KEY / TYPESAFE_API_KEY).',
+  RATE_LIMITED: 'The AI provider is rate limiting. Wait a few seconds and retry.',
+  OCR_REQUIRED: 'Try a clearer scan, a text-based PDF, or paste the RFQ text.',
+  CLIENT_TIMEOUT: 'Very long or scanned RFQs can take a few minutes. Try splitting the document.',
+};
+
+export default function Home() {
+  const [view, setView] = useState<View>('new');
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [signed, setSigned] = useState<{ blob: Blob; id: string; signedAt: string; name: string } | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [processing, setProcessing] = useState<Processing | null>(null);
+  const [error, setError] = useState<{ message: string; hint?: string } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [draft, setDraft] = useState<IntakeDraft>({ text: '', files: [], customer: '', margin: '20' });
+  const mainRef = useRef<HTMLElement>(null);
+
+  useEffect(() => { mainRef.current?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }); }, [view]);
+
+  function fail(e: unknown) {
+    if (e instanceof ApiRequestError && e.code === 'CANCELLED') return;
+    const message = e instanceof Error ? e.message : 'Something went wrong. Please retry.';
+    const details = e instanceof ApiRequestError && Array.isArray(e.details) ? ` ${(e.details as string[]).slice(0, 3).join(' ')}` : '';
+    setError({ message: message + (e instanceof ApiRequestError && e.code === 'QUOTE_BLOCKED' ? details : ''), hint: e instanceof ApiRequestError ? HINTS[e.code] : undefined });
+  }
+
+  function replaceQuote(q: Quote) { setSigned(null); setQuote(q); }
+
+  function open(q: Quote, nextView: View = 'workspace') {
+    replaceQuote(q);
+    const firstIssue = q.items.find((i) => i.included && i.status !== 'Ready');
+    setSelected((firstIssue ?? q.items[0])?.id ?? null);
+    setView(nextView);
+  }
+
+  async function process(input: { text: string; files: File[]; customer: string; margin: number; source: string }) {
+    if (processing || busy) return;
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    setError(null);
+    setNotice(null);
+    setProcessing({ startedAt, label: input.source, hasFiles: input.files.length > 0, controller });
+    try {
+      const q = await processRfq({ text: input.text, files: input.files, customer: input.customer, targetMargin: input.margin / 100, signal: controller.signal });
+      open(q);
+      const ready = q.items.filter((i) => i.status === 'Ready').length;
+      setNotice(`${q.items.length} line${q.items.length === 1 ? '' : 's'} extracted · ${ready} ready${q.ready ? ' — the quote can be exported.' : '.'}`);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setProcessing(null);
+    }
+  }
+
+  async function changeLine(itemId: string, input: { response?: string; corrections?: Spec; included?: boolean; targetMargin?: number }, label = 'Updating') {
+    if (!quote || busy) return false;
+    setBusy(label);
+    setError(null);
+    try {
+      const next = await updateQuote({ quote, itemId, ...input });
+      replaceQuote(next);
+      return true;
+    } catch (e) {
+      fail(e);
+      return false;
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function exportPdf(q: Quote) {
+    if (busy) return;
+    setBusy('Generating PDF');
+    setError(null);
+    try {
+      await downloadPdf(q);
+      setNotice('PDF downloaded.');
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+
+  async function accept(signature: Signature) {
+    if (!quote || busy) return;
+    setBusy('Signing quote'); setError(null);
+    try {
+      const result = await signQuote(quote, signature);
+      setSigned({ ...result, name: signature.name });
+      downloadBlob(result.blob, `${quote.id}-signed.pdf`);
+      setNotice('Signed PDF downloaded. Save it and send it to RudCo to request purchase.');
+    } catch (e) { fail(e); } finally { setBusy(null); }
+  }
+
+  return (
+    <div className="shell">
+      <Sidebar disabled={!!busy || !!processing} view={view} onView={(v) => { if (busy || processing) return; setView(v); setError(null); }} quote={quote} />
+      <div className="main-col">
+        <main ref={mainRef}>
+          {error && (
+            <Message tone="error" onClose={() => setError(null)}>
+              <strong>{error.message}</strong>{error.hint && <span className="hint"> {error.hint}</span>}
+            </Message>
+          )}
+          {notice && !error && <Message tone="info" onClose={() => setNotice(null)}>{notice}</Message>}
+
+          {view === 'new' && <NewRfq draft={draft} onDraft={setDraft} processing={processing} onProcess={process} onError={(m) => setError({ message: m })} />}
+          {view === 'workspace' && (
+            <Workspace
+              quote={quote}
+              selected={selected}
+              onSelect={setSelected}
+              busy={busy}
+              onChangeLine={changeLine}
+              onNext={() => setView('final')}
+              onNew={() => setView('new')}
+            />
+          )}
+          {view === 'final' && <FinalQuote quote={quote} busy={busy} onEdit={replaceQuote} onExport={exportPdf} onSign={accept} signed={signed} onDownloadSigned={() => { if (quote && signed) downloadBlob(signed.blob, `${quote.id}-signed.pdf`); }} onBack={(id) => { if (busy) return; if (id) setSelected(id); setView('workspace'); }} onNew={() => setView('new')} />}
+        </main>
+      </div>
+    </div>
+  );
 }

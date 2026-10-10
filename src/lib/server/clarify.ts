@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { ExtractedItem, Spec } from '../shared/schema';
 import { HttpError } from './errors';
 import { rawItemSchema, toSpec, type RawItem } from './extract';
-import { materialForGrade, normalizeFinish, normalizeForm, normalizeGrade, normalizeMaterial, normalizeQtyUnit, normalizeTemper, normalizeUnit, parseMeasure, r4, toInches, type LengthUnit } from './normalize';
+import { materialForGrade, normalizeFinish, normalizeForm, normalizeGrade, normalizeMaterial, normalizeQtyUnit, normalizeTemper, normalizeUnit, parseMeasure, r4, toInches } from './normalize';
 import { chatJson } from './providers/nicrron';
 
 const answerSchema = z.object({
@@ -49,6 +49,7 @@ export function applyAnswer(item: ExtractedItem, answer: Answer): ExtractedItem 
   const touched: string[] = [];
 
   for (const k of ['material', 'grade', 'form', 'finish', 'countryOfOrigin'] as const) if (patch[k] && p[k]) { set(k, p[k]); touched.push(k); }
+  if (patch.grade && !patch.material && p.material) { set('material', p.material); touched.push('material'); }
   if ((patch.temper || patch.grade) && p.temper) { set('temper', p.temper); touched.push('temper'); }
   if (patch.gauge !== undefined && p.gauge !== null) { set('gauge', p.gauge); touched.push('gauge'); }
   if (patch.quantity !== undefined && p.quantity !== null) { set('quantity', p.quantity); touched.push('quantity'); }
@@ -62,26 +63,36 @@ export function applyAnswer(item: ExtractedItem, answer: Answer): ExtractedItem 
   }
 
   const unitAnswer = normalizeUnit(answer.dimensionUnit);
-  if (unitAnswer && unitAnswer !== 'ft') { set('dimensionUnit', unitAnswer); touched.push('dimensionUnit'); }
-  for (const k of ['thickness', 'width', 'length', 'diameter', 'tolerance'] as const) {
+  if (unitAnswer) { set('dimensionUnit', unitAnswer); touched.push('dimensionUnit'); }
+  const dimensionKeys = ['thickness', 'width', 'length', 'diameter', 'tolerance'] as const;
+  const knownBaseUnit = spec.dimensionUnit;
+  if (!knownBaseUnit && dimensionKeys.some(k => patch[k] && normalizeUnit(patch[k]!.unit))) {
+    // A partial answer with a stated unit confirms only those dimensions.
+    // Previously this relabeled every untouched unitless dimension as that unit.
+    for (const key of dimensionKeys) { spec[key] = null; delete provenance[key]; }
+    set('dimensionUnit', 'in');
+  }
+  for (const k of dimensionKeys) {
     const m = patch[k];
     if (!m) continue;
     const value = parseMeasure(m.value);
     if (value === null) continue;
-    const u = normalizeUnit(m.unit) as LengthUnit | null;
+    const u = normalizeUnit(m.unit) ?? knownBaseUnit;
     const target = spec.dimensionUnit;
-    if (u && target && u !== target) set(k, r4(toInches(value, u) / toInches(1, target)));
-    else {
-      set(k, r4(value));
-      if (u && !target) set('dimensionUnit', u);
-    }
+    if (!u && target) continue; // no unit was confirmed for this value
+    if (u && target) set(k, r4(toInches(value, u) / toInches(1, target)));
+    else set(k, r4(value));
     touched.push(k);
   }
 
-  if (!touched.length && !answer.resolvesConflict) {
+  if (!touched.length && (!answer.resolvesConflict || item.conflicts.some(c => /(?:grade|temper|quantity|finish|quantityUnit):/.test(c)))) {
     throw new HttpError(422, 'CLARIFICATION_NOT_UNDERSTOOD', 'The answer did not state a value for any open question. Please answer with the specific value (for example "T6" or "0.250 in").');
   }
-  return { ...item, spec, provenance, conflicts: answer.resolvesConflict || touched.length ? [] : item.conflicts };
+  return { ...item, spec, provenance, conflicts: item.conflicts.filter(c => {
+    if (!answer.resolvesConflict) return true;
+    const fields = [...c.matchAll(/\b(grade|temper|quantity|finish|quantityUnit):/g)].map(m => m[1]!);
+    return fields.some(f => !touched.includes(f));
+  }) };
 }
 
 /** Full replacement spec from the correction form: every non-null field is customer-stated. */
