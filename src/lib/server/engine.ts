@@ -43,6 +43,10 @@ export function normalizeSpec(spec: Spec): Normalized {
   const notes: string[] = [];
   const out: Spec = { ...spec, standards: [...spec.standards], certifications: [...spec.certifications] };
   const inches = specDimsInches(spec);
+  if (!inches) {
+    // Unit-less customer numbers are not normalized inches.
+    for (const key of ['thickness', 'width', 'length', 'diameter', 'tolerance'] as const) out[key] = null;
+  }
   if (inches) {
     Object.assign(out, inches);
     const anyDim = Object.values(inches).some((v) => v !== null);
@@ -104,6 +108,10 @@ function missingInfoQuestions(item: ExtractedItem, n: Spec, lineNo: number): str
   }
   if (form === 'round bar') {
     if (n.diameter === null) q.push(`${what}: what diameter is required?`);
+    if (n.length === null) q.push(`${what}: what length per piece is required?`);
+  }
+  if (form === 'square bar' || form === 'hex bar') {
+    if (n.thickness === null) q.push(`${what}: what ${form === 'hex bar' ? 'across-flats size' : 'side size'} is required?`);
     if (n.length === null) q.push(`${what}: what length per piece is required?`);
   }
   if (s.quantity === null) q.push(`${what}: what quantity is required?`);
@@ -203,12 +211,16 @@ export function priceLine(p: CatalogProduct, quantity: number, targetMargin: num
     else { benchmarkStatus = `${p.listPrice.synthetic ? 'Synthetic' : 'Sourced'} · comparable per piece`; benchmark = p.listPrice.usd; }
   }
   const benchmarkCents = benchmark === null ? null : Math.round(benchmark * 100);
-  const competitive = benchmarkCents === null || benchmarkStatus.startsWith('Incomparable') ? null : unitPriceCents <= benchmarkCents;
+  const competitive = benchmarkCents === null || /^(Incomparable|Stale|Synthetic)/.test(benchmarkStatus) ? null : unitPriceCents <= benchmarkCents;
   const margin = (unitPriceCents - p.costCents) / unitPriceCents;
   const parts = [
     `Cost ${money(p.costCents)} (synthetic seed) ÷ (1 − ${(targetMargin * 100).toFixed(1)}% margin) = ${money(unitPriceCents)} per piece, rounded up to the cent to preserve margin.`,
   ];
-  if (benchmarkCents !== null) parts.push(competitive ? `At or below the ${money(benchmarkCents)} benchmark.` : `Above the ${money(benchmarkCents)} benchmark — target margin conflicts with market price.`);
+  if (benchmarkCents !== null && competitive !== null) {
+    const difference = Math.abs(unitPriceCents - benchmarkCents);
+    const percentage = benchmarkCents ? (difference / benchmarkCents * 100).toFixed(1) : '0.0';
+    parts.push(`${money(difference)} (${percentage}%) ${competitive ? 'at or below' : 'above'} the ${money(benchmarkCents)} ${p.supplier} list-price benchmark for the same cut size, per piece, retrieved ${p.retrievedDate}. ${competitive ? 'The price preserves the target margin while meeting the sourced comparison.' : 'Target margin conflicts with the sourced comparison.'} Comparison excludes tax and freight.`);
+  } else if (benchmarkCents !== null) parts.push(`${benchmarkStatus} (${money(benchmarkCents)}). Competitiveness unknown; obtain a current supplier price.`);
   else parts.push('No usable benchmark; competitiveness unknown.');
   return {
     cost: p.costCents / 100,
@@ -279,6 +291,7 @@ export function buildQuote(input: QuoteInputs): Quote {
         if (unit === null) explanation.push(`Bare count ${item.spec.quantity} of cut-size ${n.form} read as pieces.`);
       } else if (product) {
         blockers.push(`Line ${lineNo}: quantity is in "${unit}"; converting ${unit} to pieces is not supported. Please restate the quantity in pieces.`);
+        questions.push(`Line ${lineNo}: how many cut-size pieces are required? The stated quantity in ${unit} cannot be converted without buyer confirmation.`);
       }
     }
 

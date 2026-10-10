@@ -1,14 +1,17 @@
 # RudCo RFQ-to-Quote
 
-Turns messy metals RFQs (email text, PDF incl. fillable forms, CSV, XLSX, EML) into explainable, priced quotations with a server-generated PDF. One Next.js service: frontend + API routes, deployed on Render (`render.yaml`).
+One Next.js service converts metals RFQs into sourced catalog matches, explainable pricing, compliance review, buyer questions, and downloadable quotations. Render deploys reviewed `main` using `render.yaml`.
 
-## Backend at a glance
+## Workflow
 
-- **Extraction:** Nicrron (OpenAI-compatible) with `NICRRON_MODEL=anthropic/claude-fable-5-1`. Claude Opus 5.5 is not offered by Nicrron (verified via `/v1/models`); Fable 5.1 was chosen after a live JSON-extraction comparison with `claude-opus-5` and `claude-sonnet-5`. The model only transcribes; every `original` is checked against the real document text and lines that cannot be traced are dropped.
-- **Classification:** TypeSafe Jev (`jev-latest`, currently `jev-1.13.0`) for material/form/risk per line and a prompt-injection check.
-- **Deterministic engine** (`src/lib/server/engine.ts`): normalization (synonyms, fractions, mm/ft, material-specific gauge tables), precise clarification questions, exact matching with no silent substitutions, aggregate stock, integer-cent pricing (`ceil(cost / (1 − margin))`), compliance (verified/pending/missing/not_requested) and readiness. Process, clarify and PDF export all recompute through it, so client-side tampering is discarded.
-- **Catalog:** 28 real Speedy Metals products (126 size options) with part numbers, URLs, standards and list prices from the supplier pages (retrieved 2026-10-10). OnlineMetals, Metals Depot and Midwest Steel blocked automated access. Stock, cost and lead time are synthetic seeds. Pages document no MTR availability or origin, so those requirements correctly block export.
-- **Tracing:** every model/classifier call is sent to PRISM (`src/lib/server/providers/prism.ts`); see `CLAUDE.md`.
+1. Parse PDF (including fillable form fields), CSV, XLSX, TXT or EML, plus pasted email, preserving original wording and source references.
+2. Extract specifications with Nicrron and classify each line with TypeSafe Jev. Normalize material, grade, temper, dimensions, quantity and standards on the server. Unknown values become buyer questions.
+3. Match exact supplier specifications without silent substitutions. Check aggregate demand across included lines.
+4. Price using integer cents and the target gross margin. Explain the difference from the supplier's same-size, same-unit list-price benchmark. Missing, stale or synthetic benchmarks cannot establish competitiveness.
+5. Flag requested MTR, origin and certification evidence. Resolve questions through buyer answers or corrections; excluded requests stay visible.
+6. Review and export a server-validated PDF. A buyer can type their full name, provide an email, confirm authorization and download a signed purchase request.
+
+The three example buttons populate real RFQs for the live processing path. They do not load fictional ready quotations. Provider details, warnings and the catalog disclosure appear in the workspace.
 
 ## Run
 
@@ -16,44 +19,34 @@ Node 22.13+ (Node 24 recommended).
 
 ```sh
 npm ci
+cp .env.example .env.local
 npm run dev
 ```
 
-Open http://localhost:3000. Select one of the three clearly labeled sample workspaces to review the frontend. `Process RFQ` always calls the real backend; this branch has no mock process endpoint. Samples do not make AI calls and do not represent verified supplier offers.
+Configure `NICRRON_API_KEY`, `TYPESAFE_API_KEY`, and PRISM tracing secrets locally or in Render. Secrets are server-only and must never be committed. Extraction uses the configured Nicrron model, default `anthropic/claude-fable-5-1`; Jev uses `jev-latest`. Every extraction, clarification and classification call is traced to PRISM.
 
-## Implemented in this PR
-
-- New RFQ: drag/drop or browse PDF/CSV/XLSX/TXT (10 MB limit), paste email, customer and target margin.
-- Workspace: original source, extracted line table, specifications and provenance, matches/alternatives, pricing rationale, benchmark labeling, compliance evidence, clarification form, corrections and exclusions.
-- Final quote: editable customer/dates, included products, documentation and terms, visible excluded lines, readiness guard and PDF download.
-- Shared TypeScript/Zod schemas and typed API client.
-- Explicit illustrative fixtures: successful, missing aluminum temper (answer `T6`), unavailable 316L/certification.
-- In-memory PDF generation with wrapping, page breaks, sample watermark/disclosure and structural blocker validation.
-- Fail-closed production export adapter. The partner must connect authoritative validation before real export can work.
-
-## Integration
-
-See [API contract](docs/API.md). Partner implements `/api/rfq/process`, `/api/rfq/clarify`, `/api/health` and replaces `src/lib/server/quote-validation.ts`. Production PDF requests deliberately return `503 BACKEND_NOT_CONNECTED` until this integration is complete. Demo PDF exports are unmistakably samples; the browser's `demo` flag cannot authorize a production quotation.
-
-The process endpoint accepts multipart `file`, `text`, `customer`, `targetMargin`. The clarify endpoint accepts JSON `{quote,itemId,response?,corrections?,included?,targetMargin?}`. Both return the complete `Quote` directly, validated by the client. Errors use `{error:{code,message,details?}}`.
-
-Copy `.env.example` to `.env.local` and fill in the keys. Set secrets locally or in Render, never commit them. The requested Nicrron model must be verified by the partner rather than assumed available.
-
-## Verification
+## Explicit acceptance harness
 
 ```sh
-npm run typecheck
-npm test
-npm run build
-npm run start
+npm run harness -- http://localhost:3000
+# Or point at the deployed app:
+npm run harness -- https://rudco-rfq-preview.onrender.com
 ```
 
-Production start binds `0.0.0.0` using `PORT`, defaulting to 3000. PDF tests exercise blocking, sample disclosure, page overflow and the fail-closed production adapter. Tests do not prove the future real AI/backend acceptance flows.
+The harness reports each requested stage in order: parsing, catalog matching, competitive pricing, compliance, and clarification. It then exercises corrections, material reclassification, exclusions, repricing, unsigned PDF export, typed signing and signing rejection cases. It uses the real app endpoints, makes billable provider calls, and requires Nicrron, Jev and PRISM configuration. It does not send a purchase request to anyone. It runs only when explicitly invoked, never during `npm test` or a build.
 
-## Delivery and Render
+The existing deterministic suite remains available through `npm test`. No tests or browser checks were run after the user's instruction to stop testing; the new harness and final signing changes have not been executed.
 
-**Both halves ship through pull requests only. No direct pushes to main and no automatic merge by agents.** This branch does not provision Render or claim a live deployment. Partner's Render-enabled agent owns one Node Web Service with `npm ci && npm run build`, `npm run start`, health `/api/health`, server-only AI secrets and automatic deployment from reviewed main. Detailed steps and acceptance requirements are in [HANDOFF.md](docs/HANDOFF.md).
+## Typed purchase acceptance
 
-## Demo data
+The server recomputes the quote before signing and refuses blocked lines, samples, zero included lines, missing authorization, invalid buyer details, expired/future-dated quotes, mismatched signing companies, or changed commercial content. Expiration dates are inclusive through the stated UTC date. Changes to the quote or signer details clear the authorization/signature in the UI; quote controls are locked while signing.
 
-The frontend uses fictional internal SKUs and synthetic costs, inventory, benchmarks and lead times. These fixtures are UI samples, not the required sourced 20–30-product backend catalog. No certificates or origin evidence are invented. Sample PDF export is for interface review only. Manual spec reprocessing is disabled in fixture mode because it requires the real matching engine.
+The signed PDF includes the typed name, email, company, total, server UTC timestamp, acceptance reference, purchase statement, exclusions and a SHA-256 digest of the commercial content. Its embedded `buyer-acceptance.json` preserves the exact UTF-8 signature and quotation snapshot, including names outside the built-in PDF font's character set. Repeat downloads reuse the same signed PDF.
+
+Signing generates a purchase-request artifact. It does not transmit an order, verify signer identity, reserve stock, or confirm supplier fulfillment. The app is stateless: buyers must save the signed PDF and send it to RudCo; refreshing the workspace clears its in-memory signature.
+
+## Data boundaries
+
+The catalog contains 28 Speedy Metals products with 126 size options, supplier part numbers, URLs, specifications, standards and list-price benchmarks retrieved 2026-10-10. Stock, costs and lead times are synthetic seeds. Certificates and country of origin are not invented. Required documentation without supplier evidence blocks export and signing. A supplier list price is a dated comparison, not a live market feed.
+
+See [API contract](docs/API.md). Ship changes through pull requests; Render automatically deploys reviewed `main`.

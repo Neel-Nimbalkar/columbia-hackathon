@@ -49,6 +49,7 @@ export function applyAnswer(item: ExtractedItem, answer: Answer): ExtractedItem 
   const touched: string[] = [];
 
   for (const k of ['material', 'grade', 'form', 'finish', 'countryOfOrigin'] as const) if (patch[k] && p[k]) { set(k, p[k]); touched.push(k); }
+  if (patch.grade && !patch.material && p.material) { set('material', p.material); touched.push('material'); }
   if ((patch.temper || patch.grade) && p.temper) { set('temper', p.temper); touched.push('temper'); }
   if (patch.gauge !== undefined && p.gauge !== null) { set('gauge', p.gauge); touched.push('gauge'); }
   if (patch.quantity !== undefined && p.quantity !== null) { set('quantity', p.quantity); touched.push('quantity'); }
@@ -81,7 +82,7 @@ export function applyAnswer(item: ExtractedItem, answer: Answer): ExtractedItem 
   if (!touched.length && !answer.resolvesConflict) {
     throw new HttpError(422, 'CLARIFICATION_NOT_UNDERSTOOD', 'The answer did not state a value for any open question. Please answer with the specific value (for example "T6" or "0.250 in").');
   }
-  return { ...item, spec, provenance, conflicts: answer.resolvesConflict || touched.length ? [] : item.conflicts };
+  return { ...item, spec, provenance, conflicts: answer.resolvesConflict ? [] : item.conflicts };
 }
 
 /** Full replacement spec from the correction form: every non-null field is customer-stated. */

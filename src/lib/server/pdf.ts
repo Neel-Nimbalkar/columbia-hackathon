@@ -1,12 +1,14 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import type { Quote } from '../shared/schema';
+import type { QuoteAcceptance } from '../shared/acceptance';
+import { QUOTE_TERMS, signingSnapshot } from '../shared/acceptance';
 export function exportBlockers(quote:Quote):string[]{const included=quote.items.filter(i=>i.included);if(!included.length)return ['Include at least one ready line.'];return included.flatMap(i=>[...i.blockers,...i.questions,...i.conflicts,...(i.status!=='Ready'?[`${i.id}: ${i.status}`]:[]),...(!i.matchedSku?[`${i.id}: no matched SKU`]:[]),...(!i.pricing?[`${i.id}: no validated price`]:[]),...(i.spec.quantity===null||i.spec.quantity<=0?[`${i.id}: invalid quantity`]:[]),...i.compliance.filter(c=>c.status==='pending'||c.status==='missing').map(c=>`${i.id}: ${c.requirement} ${c.status}`)]);}
 const money=(n:number)=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n);
 /** Keep everything Helvetica (WinAnsi) can encode, e.g. ± Ø ° ×; substitute the rest visibly instead of dropping it,
  * so "±0.005" never prints as "0.005". */
 export const pdfText=(s:string)=>s.replace(/[–—−‐‑]/g,'-').replace(/×/g,'x').replace(/·/g,' | ').replace(/″/g,'"').replace(/′/g,"'").replace(/≤/g,'<=').replace(/≥/g,'>=').replace(/⌀/g,'Ø').replace(/[^\x20-\x7E\n\u00A0-\u00FF€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•˜™š›œžŸ]/g,'?');
 const ascii=pdfText;
-export async function generateQuotePdf(quote:Quote,demo=false):Promise<Uint8Array>{
+export async function generateQuotePdf(quote:Quote,demo=false,acceptance?:QuoteAcceptance):Promise<Uint8Array>{
  const blockers=exportBlockers(quote);if(blockers.length)throw new Error(blockers.join('; '));
  const doc=await PDFDocument.create();const regular=await doc.embedFont(StandardFonts.Helvetica);const bold=await doc.embedFont(StandardFonts.HelveticaBold);
  const ink=rgb(.12,.15,.2),muted=rgb(.4,.44,.5),line=rgb(.87,.89,.92),accent=rgb(.3,.27,.77);
@@ -21,7 +23,7 @@ export async function generateQuotePdf(quote:Quote,demo=false):Promise<Uint8Arra
  tableHeader();
  for(const item of quote.items.filter(i=>i.included)){
   const s=item.normalized;const description=`${s.material??'Unknown material'} ${s.grade??''}${s.temper?' / '+s.temper:''} ${s.form??''}`;
-  const dimensions=[s.thickness,s.width,s.length].filter(v=>v!==null).join(' x ')+(s.dimensionUnit?' '+s.dimensionUnit:'');
+  const dimensions=(s.form==='round bar'||s.form==='tube'?`${s.diameter} dia${s.form==='tube'?` x ${s.thickness} wall`:''} x ${s.length}`:[s.thickness,s.width,s.length].filter(v=>v!==null).join(' x '))+(s.dimensionUnit?' '+s.dimensionUnit:'');
   const rows=[...wrapped(description,275,10,true),...wrapped(`SKU ${item.matchedSku}`,275,9),...wrapped(`${dimensions} | ${s.finish??'Finish not specified'}`,275,9)];
   const h=rows.length*15+17;if(y-h<66){page=doc.addPage([595.28,841.89]);header();tableHeader();}
   rows.forEach((row,i)=>write(row,52,y-i*15,i===0?10:9,i===0));write(String(s.quantity),345,y,10);write(money(item.pricing!.unitPrice),392,y,10);write(money(item.pricing!.lineTotal),477,y,10);y-=h;page.drawLine({start:{x:44,y:y+7},end:{x:551,y:y+7},color:line,thickness:.5});
@@ -30,10 +32,25 @@ export async function generateQuotePdf(quote:Quote,demo=false):Promise<Uint8Arra
   if(s.standards.length)paragraph(`Requested standards: ${s.standards.join(', ')}`,8,muted);
  }
  ensure(58);y-=10;write('TOTAL (USD)',355,y,10,true);write(money(quote.total),466,y,17,true);y-=37;
- paragraph('Terms & assumptions',11,ink,true);paragraph('Freight and applicable taxes are excluded. Payment terms and delivery schedule are subject to agreement. No substitution of material, grade, temper or certification is authorized by this quotation.',9,muted);
+ paragraph('Terms & assumptions',11,ink,true);paragraph(QUOTE_TERMS,9,muted);
  const excluded=quote.items.filter(i=>!i.included);if(excluded.length){paragraph('Excluded requests',10,ink,true);for(const i of excluded)paragraph(`${i.id}: ${i.original}`,9,muted);}
  paragraph(quote.disclosure,8,demo?accent:muted);
+ if(acceptance){
+  ensure(190);
+  paragraph('BUYER ACCEPTANCE / PURCHASE REQUEST',12,accent,true);
+  paragraph(`Typed signature: ${acceptance.name}`,18,ink,true);
+  paragraph(`For: ${acceptance.company} | Email: ${acceptance.email}`,10);
+  paragraph(`Accepted at: ${acceptance.signedAt} (UTC) | Total: ${money(quote.total)}`,9,muted);
+  paragraph(acceptance.statement,9);
+  paragraph('Save this signed PDF and send it to RudCo to request purchase. It does not confirm supplier fulfillment. The typed signer identity has not been independently verified.',8,muted);
+  paragraph(`Acceptance reference: ${acceptance.id}`,8,muted);
+  paragraph(`Quotation content SHA-256: ${acceptance.quoteHash}`,8,muted);
+  // Retain the exact UTF-8 signer name, including scripts unavailable in the
+  // built-in PDF font, together with the commercial snapshot and audit record.
+  await doc.attach(Buffer.from(JSON.stringify({acceptance,quotation:signingSnapshot(quote)},null,2),'utf8'),'buyer-acceptance.json',{mimeType:'application/json',description:'Exact typed buyer acceptance and quotation snapshot',creationDate:new Date(acceptance.signedAt)});
+  paragraph('The attached buyer-acceptance.json retains the exact typed name and quotation record, including characters unsupported by this PDF font.',8,muted);
+ }
  if(demo)paragraph('Illustrative interface fixture only. No real AI processing or supplier verification was performed. This sample cannot be treated as a final approved quotation.',8,accent,true);
  const pages=doc.getPages();pages.forEach((p,i)=>{p.drawLine({start:{x:44,y:46},end:{x:551,y:46},color:line,thickness:.5});p.drawText(`${ascii(quote.id)}${demo?' | DEMO SAMPLE':''}`,{x:44,y:30,size:8,font:regular,color:muted});p.drawText(`${i+1} / ${pages.length}`,{x:515,y:30,size:8,font:regular,color:muted});});
- doc.setTitle(`${demo?'Demo sample - ':''}RudCo quote ${quote.id}`);doc.setAuthor('RudCo');return doc.save();
+ doc.setTitle(`${acceptance?'Signed - ':demo?'Demo sample - ':''}RudCo quote ${quote.id}`);doc.setAuthor('RudCo');return doc.save();
 }

@@ -185,7 +185,10 @@ export function toSpec(raw: RawItem, provenance: Provenance = {}): { spec: Spec;
   const certs: string[] = [];
   let mtr = raw.mtrRequested;
   for (const c of raw.certifications) {
-    if (MTR_RE.test(c) && !/dfars|as9100|iso|nadcap|itar/i.test(c)) mtr = true;
+    if (MTR_RE.test(c) && !/dfars|as9100|iso|nadcap|itar/i.test(c)) {
+      mtr = true;
+      if (/10204|3\.1|3\.2/i.test(c)) certs.push(c.trim());
+    }
     else if (c.trim()) certs.push(c.trim());
   }
   spec.mtr = mtr;
