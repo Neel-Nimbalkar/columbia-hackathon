@@ -9,11 +9,26 @@ export class ApiRequestError extends Error {
   }
 }
 
+// Present actionable service errors without exposing provider or configuration details.
+const SERVICE_MESSAGES: Record<string, string> = {
+  PROVIDER_NOT_CONFIGURED: 'Quoting is temporarily unavailable. Please try again later.',
+  RATE_LIMITED: 'Quoting is busy. Please wait a moment and retry.',
+  UPSTREAM_TIMEOUT: 'This request took too long. Please retry or use a smaller RFQ.',
+  UPSTREAM_ERROR: 'Unable to process this request right now. Please retry.',
+  UPSTREAM_INVALID_OUTPUT: 'We could not complete the RFQ review. Please retry.',
+  UPSTREAM_TRUNCATED: 'The RFQ could not be read completely. Try splitting the document.',
+  UPSTREAM_MODEL_MISMATCH: 'We could not complete the RFQ review. Please retry.',
+};
+
 async function failure(response: Response): Promise<never> {
   let data: { error?: { code?: string; message?: string; details?: unknown } } | null = null;
   try { data = await response.json(); } catch { /* not JSON */ }
-  if (data?.error?.code) throw new ApiRequestError(data.error.message ?? `Request failed (${response.status}).`, data.error.code, response.status, data.error.details);
-  if (response.status === 504 || response.status === 502) throw new ApiRequestError('The server took too long to answer. Please retry.', 'GATEWAY_TIMEOUT', response.status);
+  if (data?.error?.code) {
+    const code = data.error.code;
+    const message = SERVICE_MESSAGES[code] ?? (response.status >= 500 ? 'Unable to complete this request. Please retry.' : data.error.message ?? 'Unable to complete this request. Please retry.');
+    throw new ApiRequestError(message, code, response.status, SERVICE_MESSAGES[code] || response.status >= 500 ? undefined : data.error.details);
+  }
+  if (response.status === 504 || response.status === 502) throw new ApiRequestError('This request took too long. Please retry.', 'GATEWAY_TIMEOUT', response.status);
   throw new ApiRequestError(`Request failed (${response.status}).`, 'UNEXPECTED_RESPONSE', response.status);
 }
 
@@ -23,14 +38,14 @@ async function send(input: RequestInfo, init: RequestInit): Promise<Response> {
   } catch (err) {
     if ((err as Error).name === 'TimeoutError') throw new ApiRequestError('The request timed out. Large or scanned RFQs can take a few minutes; please retry.', 'CLIENT_TIMEOUT', 0);
     if ((err as Error).name === 'AbortError') throw new ApiRequestError('Cancelled.', 'CANCELLED', 0);
-    throw new ApiRequestError('Could not reach the server. Check your connection and retry.', 'NETWORK_ERROR', 0);
+    throw new ApiRequestError('Connection lost. Check your connection and retry.', 'NETWORK_ERROR', 0);
   }
 }
 
 async function quoteResponse(response: Response): Promise<Quote> {
   if (!response.ok) return failure(response);
   const parsed = quoteSchema.safeParse(await response.json());
-  if (!parsed.success) throw new ApiRequestError('The server returned an invalid quotation. Please retry.', 'INVALID_RESPONSE', response.status);
+  if (!parsed.success) throw new ApiRequestError('The quotation could not be read. Please retry.', 'INVALID_RESPONSE', response.status);
   return parsed.data;
 }
 

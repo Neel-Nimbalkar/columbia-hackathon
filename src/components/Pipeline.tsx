@@ -70,7 +70,6 @@ export function Pipeline({ ledger, currentId, onOpen, onNew }: { ledger: LedgerE
   const marginBase = quoted.filter((e) => e.quote.total > 0);
   const weightedMargin = marginBase.length ? marginBase.reduce((s, e) => s + (quoteMargin(e.quote) ?? 0) * e.quote.total, 0) / sum(marginBase) : null;
   const toReady = median(inRange.filter((e) => e.readyAt).map((e) => Date.parse(e.readyAt!) - Date.parse(e.createdAt) + e.processingMs));
-  const aiTime = median(inRange.map((e) => e.processingMs));
   const lines = inRange.reduce((s, e) => s + e.firstPassLines, 0);
   const firstPass = lines ? inRange.reduce((s, e) => s + e.firstPassReady, 0) / lines : null;
 
@@ -107,7 +106,7 @@ export function Pipeline({ ledger, currentId, onOpen, onNew }: { ledger: LedgerE
         <div className="kpi"><span>Win rate</span><strong>{decided ? pct(won.length / decided, 0) : '—'}</strong><small>{decided ? `${won.length} of ${decided} decided` : 'No outcomes recorded yet'}</small></div>
         <div className="kpi"><span>Open pipeline</span><strong>{compactMoney(sum(open))}</strong><small>{open.length} awaiting a reply</small></div>
         <div className="kpi"><span>Avg gross margin</span><strong>{weightedMargin === null ? '—' : pct(weightedMargin)}</strong><small>Value-weighted, quoted</small></div>
-        <div className="kpi"><span>RFQ → ready quote</span><strong>{toReady === null ? '—' : duration(toReady)}</strong><small>Median · AI pass {aiTime === null ? '—' : duration(aiTime)}</small></div>
+        <div className="kpi"><span>RFQ → ready quote</span><strong>{toReady === null ? '—' : duration(toReady)}</strong><small>Median time to ready</small></div>
         <div className="kpi"><span>First-pass ready</span><strong>{firstPass === null ? '—' : pct(firstPass, 0)}</strong><small>Lines with no questions</small></div>
       </div>
 
@@ -176,7 +175,7 @@ function LedgerRow({ e, today, current, onOpen }: { e: LedgerEntry; today: strin
         </button>
         <input className="note" value={e.note} placeholder="Add a note…" aria-label={`Note for ${e.id}`} onChange={(ev) => setNote(e.id, ev.target.value)} />
       </td>
-      <td>{relativeDate(e.createdAt)}<small>{duration(e.processingMs)} AI pass</small></td>
+      <td>{relativeDate(e.createdAt)}<small>{duration(e.processingMs)} processing</small></td>
       <td>{ready}/{included} ready</td>
       <td className="num">{money(e.quote.total)}</td>
       <td className="num">{margin === null ? '—' : pct(margin)}</td>

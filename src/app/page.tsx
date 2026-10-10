@@ -16,8 +16,6 @@ import { Message } from '@/components/ui';
 export interface Processing { startedAt: number; label: string; hasFiles: boolean; controller: AbortController }
 
 const HINTS: Record<string, string> = {
-  PROVIDER_NOT_CONFIGURED: 'The server is missing its AI provider keys (NICRRON_API_KEY / TYPESAFE_API_KEY).',
-  RATE_LIMITED: 'The AI provider is rate limiting. Wait a few seconds and retry.',
   OCR_REQUIRED: 'Try a clearer scan, a text-based PDF, or paste the RFQ text.',
   CLIENT_TIMEOUT: 'Very long or scanned RFQs can take a few minutes. Try splitting the document.',
 };
@@ -39,7 +37,7 @@ export default function Home() {
 
   function fail(e: unknown) {
     if (e instanceof ApiRequestError && e.code === 'CANCELLED') return;
-    const message = e instanceof Error ? e.message : 'Something went wrong. Please retry.';
+    const message = e instanceof ApiRequestError ? e.message : 'Unable to complete this request. Please retry.';
     const details = e instanceof ApiRequestError && Array.isArray(e.details) ? ` ${(e.details as string[]).slice(0, 3).join(' ')}` : '';
     setError({ message: message + (e instanceof ApiRequestError && e.code === 'QUOTE_BLOCKED' ? details : ''), hint: e instanceof ApiRequestError ? HINTS[e.code] : undefined });
   }
