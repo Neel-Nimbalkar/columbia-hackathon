@@ -31,7 +31,7 @@ test('fillable PDF form values are read from form fields', async () => {
   f.setText('RFQ-2026-118');
   f.addToPage(page, { x: 50, y: 700, width: 200, height: 20 });
   const src = await parseUpload(file('form.pdf', await doc.save()));
-  assert.ok(src.segments.some((s) => s.text.includes('RFQ-2026-118') && s.ref.includes('form field')));
+  assert.ok(src.segments.some((s) => s.text.includes('RFQ-2026-118') && /page 1 · line \d+/.test(s.ref)));
 });
 
 test('empty/scanned PDF asks for OCR; corrupt PDF and wrong magic are rejected clearly', async () => {
